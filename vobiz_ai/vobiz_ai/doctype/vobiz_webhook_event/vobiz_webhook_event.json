@@ -1,0 +1,33 @@
+{
+ "actions": [],
+ "allow_import": 1,
+ "autoname": "field:event_key",
+ "creation": "2026-05-27 17:40:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": ["event_key", "event_type", "request_id", "account_id", "call_key", "status", "received_at", "call_log", "error_log", "payload"],
+ "fields": [
+  {"fieldname": "event_key", "fieldtype": "Data", "in_list_view": 1, "label": "Event Key", "reqd": 1, "unique": 1},
+  {"fieldname": "event_type", "fieldtype": "Data", "in_list_view": 1, "in_standard_filter": 1, "label": "Event Type"},
+  {"fieldname": "request_id", "fieldtype": "Data", "label": "Request ID"},
+  {"fieldname": "account_id", "fieldtype": "Data", "in_standard_filter": 1, "label": "Account ID"},
+  {"fieldname": "call_key", "fieldtype": "Data", "in_standard_filter": 1, "label": "Call Key"},
+  {"fieldname": "status", "fieldtype": "Select", "in_list_view": 1, "in_standard_filter": 1, "label": "Status", "options": "\nReceived\nQueued\nProcessing\nProcessed\nDuplicate\nFailed"},
+  {"fieldname": "received_at", "fieldtype": "Datetime", "in_list_view": 1, "label": "Received At"},
+  {"fieldname": "call_log", "fieldtype": "Link", "label": "Call Log", "options": "Vobiz Call Log"},
+  {"fieldname": "error_log", "fieldtype": "Link", "label": "Error Log", "options": "Vobiz Error Log"},
+  {"fieldname": "payload", "fieldtype": "Long Text", "label": "Payload"}
+ ],
+ "modified": "2026-05-27 17:40:00.000000",
+ "modified_by": "Administrator",
+ "module": "Vobiz AI",
+ "name": "Vobiz Webhook Event",
+ "owner": "Administrator",
+ "permissions": [
+  {"create": 1, "delete": 1, "email": 1, "export": 1, "print": 1, "read": 1, "report": 1, "role": "System Manager", "share": 1, "write": 1},
+  {"create": 1, "delete": 1, "email": 1, "export": 1, "print": 1, "read": 1, "report": 1, "role": "Vobiz AI Manager", "share": 1, "write": 1}
+ ],
+ "sort_field": "received_at",
+ "sort_order": "DESC",
+ "states": []
+}
