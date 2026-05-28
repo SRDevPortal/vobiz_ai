@@ -132,7 +132,7 @@ def ensure_workspace():
         "label": "Vobiz AI",
         "public": 1,
         "for_user": "",
-        "icon": "phone",
+        "icon": "phone-call",
         "content": json.dumps(content),
     }
 
