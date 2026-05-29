@@ -168,7 +168,7 @@ def get_to_number(payload: dict[str, Any]) -> str:
 
 def get_direction(payload: dict[str, Any]) -> str:
 	direction = (payload.get("Direction") or payload.get("direction") or "").lower()
-	return "Outgoing" if direction == "outbound" else "Incoming"
+	return "Outgoing" if direction in {"outbound", "outgoing"} else "Incoming"
 
 
 def get_customer_number(payload: dict[str, Any]) -> str:

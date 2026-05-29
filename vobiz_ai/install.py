@@ -20,8 +20,10 @@ def after_migrate():
 def setup():
     ensure_module_def()
     ensure_roles()
-    ensure_custom_fields()
+    custom_fields = ensure_custom_fields()
     remove_duplicate_crm_lead_score_fields()
+    remove_obsolete_layout_fields()
+    ensure_custom_fields_at_end(custom_fields)
     ensure_workspace()
 
 
@@ -45,49 +47,120 @@ def _field(fieldname, label, fieldtype, **kwargs):
     return row
 
 
+def _chain_at_end(doctype: str, custom_fields: list[dict]) -> list[dict]:
+    target_fieldnames = {field["fieldname"] for field in custom_fields}
+    anchor = None
+
+    for field in reversed(frappe.get_meta(doctype, cached=False).fields):
+        if field.fieldname not in target_fieldnames:
+            anchor = field.fieldname
+            break
+
+    previous = anchor
+    chained_fields = []
+    for field in custom_fields:
+        row = field.copy()
+        if previous:
+            row["insert_after"] = previous
+        else:
+            row.pop("insert_after", None)
+        previous = row["fieldname"]
+        chained_fields.append(row)
+
+    return chained_fields
+
+
 def ensure_custom_fields():
     fields = {}
     if frappe.db.exists("DocType", "CRM Lead"):
-        fields["CRM Lead"] = [
-            _field("vobiz_ai_tab", "Vobiz Calls", "Tab Break", insert_after="lost_notes"),
-            _field("vobiz_ai_summary_sb", "Vobiz Summary", "Section Break", insert_after="vobiz_ai_tab"),
-            _field("vobiz_latest_call_time", "Latest Vobiz Call Time", "Datetime", read_only=1, insert_after="vobiz_ai_summary_sb"),
-            _field("vobiz_last_call_status", "Last Vobiz Call Status", "Data", read_only=1, insert_after="vobiz_latest_call_time"),
-            _field("vobiz_caller_classification", "Vobiz Caller Type", "Select", options="\nNew Lead\nOld Lead\nPatient", read_only=1, insert_after="vobiz_last_call_status"),
-            _field("vobiz_summary_cb", "", "Column Break", insert_after="vobiz_caller_classification"),
-            _field("vobiz_kamal_involved", "Kamal Involved", "Check", read_only=1, insert_after="vobiz_summary_cb"),
-            _field("vobiz_ai_calls_html", "Vobiz Call History", "HTML", insert_after="vobiz_kamal_involved"),
-        ]
+        fields["CRM Lead"] = _chain_at_end(
+            "CRM Lead",
+            [
+                _field("vobiz_ai_tab", "Vobiz Calls", "Tab Break"),
+                _field("vobiz_ai_summary_sb", "Vobiz Summary", "Section Break"),
+                _field("vobiz_latest_call_time", "Latest Vobiz Call Time", "Datetime", read_only=1),
+                _field("vobiz_last_call_status", "Last Vobiz Call Status", "Data", read_only=1),
+                _field("vobiz_caller_classification", "Vobiz Caller Type", "Select", options="\nNew Lead\nOld Lead\nPatient", read_only=1),
+                _field("vobiz_kamal_involved", "Kamal Involved", "Check", read_only=1),
+                _field("vobiz_call_history_sb", "Vobiz Call History", "Section Break"),
+                _field("vobiz_ai_calls_html", "", "HTML"),
+            ],
+        )
     if frappe.db.exists("DocType", "Patient"):
-        fields["Patient"] = [
-            _field("vobiz_ai_tab", "Vobiz Calls", "Tab Break", insert_after="medical_history_tab"),
-            _field("vobiz_ai_summary_sb", "Vobiz Summary", "Section Break", insert_after="vobiz_ai_tab"),
-            _field("vobiz_call_indicator", "Vobiz", "Data", read_only=1, in_list_view=1, in_standard_filter=1, insert_after="vobiz_ai_summary_sb"),
-            _field("vobiz_latest_call_time", "Latest Vobiz Call Time", "Datetime", read_only=1, in_list_view=1, in_standard_filter=1, insert_after="vobiz_call_indicator"),
-            _field("vobiz_last_call_status", "Last Vobiz Call Status", "Data", read_only=1, in_standard_filter=1, insert_after="vobiz_latest_call_time"),
-            _field("vobiz_caller_classification", "Vobiz Caller Type", "Select", options="\nNew Lead\nOld Lead\nPatient", read_only=1, in_standard_filter=1, insert_after="vobiz_last_call_status"),
-            _field("vobiz_summary_cb", "", "Column Break", insert_after="vobiz_caller_classification"),
-            _field("vobiz_lead_temperature", "Vobiz Lead Temperature", "Select", options="\nHot\nWarm\nCold", read_only=1, in_list_view=1, in_standard_filter=1, insert_after="vobiz_summary_cb"),
-            _field("vobiz_lead_score", "Vobiz Lead Score", "Int", read_only=1, in_list_view=1, in_standard_filter=1, insert_after="vobiz_lead_temperature"),
-            _field("vobiz_lead_language", "Vobiz Language", "Data", read_only=1, in_list_view=1, in_standard_filter=1, insert_after="vobiz_lead_score"),
-            _field("vobiz_call_count", "Vobiz Call Count", "Int", read_only=1, in_list_view=1, in_standard_filter=1, insert_after="vobiz_lead_language"),
-            _field("vobiz_kamal_involved", "Kamal Involved", "Check", read_only=1, in_standard_filter=1, insert_after="vobiz_call_count"),
-            _field("vobiz_ai_calls_html", "Vobiz Call History", "HTML", insert_after="vobiz_kamal_involved"),
-        ]
+        fields["Patient"] = _chain_at_end(
+            "Patient",
+            [
+                _field("vobiz_ai_tab", "Vobiz Calls", "Tab Break"),
+                _field("vobiz_ai_summary_sb", "Vobiz Summary", "Section Break"),
+                _field("vobiz_call_indicator", "Vobiz", "Data", read_only=1, in_list_view=1, in_standard_filter=1),
+                _field("vobiz_latest_call_time", "Latest Vobiz Call Time", "Datetime", read_only=1, in_list_view=1, in_standard_filter=1),
+                _field("vobiz_last_call_status", "Last Vobiz Call Status", "Data", read_only=1, in_standard_filter=1),
+                _field("vobiz_caller_classification", "Vobiz Caller Type", "Select", options="\nNew Lead\nOld Lead\nPatient", read_only=1, in_standard_filter=1),
+                _field("vobiz_lead_temperature", "Vobiz Lead Temperature", "Select", options="\nHot\nWarm\nCold", read_only=1, in_list_view=1, in_standard_filter=1),
+                _field("vobiz_lead_score", "Vobiz Lead Score", "Int", read_only=1, in_list_view=1, in_standard_filter=1),
+                _field("vobiz_lead_language", "Vobiz Language", "Data", read_only=1, in_list_view=1, in_standard_filter=1),
+                _field("vobiz_call_count", "Vobiz Call Count", "Int", read_only=1, in_list_view=1, in_standard_filter=1),
+                _field("vobiz_kamal_involved", "Kamal Involved", "Check", read_only=1, in_standard_filter=1),
+                _field("vobiz_call_history_sb", "Vobiz Call History", "Section Break"),
+                _field("vobiz_ai_calls_html", "", "HTML"),
+            ],
+        )
     if frappe.db.exists("DocType", "Issue"):
-        fields["Issue"] = [
-            _field("vobiz_issue_section", "Vobiz Call", "Section Break", insert_after="description"),
-            _field("vobiz_call_log", "Vobiz Call Log", "Link", options="Vobiz Call Log", read_only=1, in_list_view=1, in_standard_filter=1, insert_after="vobiz_issue_section"),
-            _field("vobiz_patient", "Vobiz Patient", "Link", options="Patient", read_only=1, in_list_view=1, in_standard_filter=1, insert_after="vobiz_call_log"),
-            _field("vobiz_crm_lead", "Vobiz CRM Lead", "Link", options="CRM Lead", read_only=1, in_standard_filter=1, insert_after="vobiz_patient"),
-            _field("vobiz_call_time", "Vobiz Call Time", "Datetime", read_only=1, in_standard_filter=1, insert_after="vobiz_crm_lead"),
-            _field("vobiz_call_direction", "Vobiz Direction", "Data", read_only=1, in_standard_filter=1, insert_after="vobiz_call_time"),
-            _field("vobiz_call_status", "Vobiz Call Status", "Data", read_only=1, in_standard_filter=1, insert_after="vobiz_call_direction"),
-            _field("vobiz_lead_temperature", "Vobiz Lead Temperature", "Data", read_only=1, in_standard_filter=1, insert_after="vobiz_call_status"),
-            _field("vobiz_lead_score", "Vobiz Lead Score", "Int", read_only=1, in_standard_filter=1, insert_after="vobiz_lead_temperature"),
-        ]
+        fields["Issue"] = _chain_at_end(
+            "Issue",
+            [
+                _field("vobiz_issue_section", "Vobiz Call", "Section Break"),
+                _field("vobiz_call_log", "Vobiz Call Log", "Link", options="Vobiz Call Log", read_only=1, in_list_view=1, in_standard_filter=1),
+                _field("vobiz_patient", "Vobiz Patient", "Link", options="Patient", read_only=1, in_list_view=1, in_standard_filter=1),
+                _field("vobiz_crm_lead", "Vobiz CRM Lead", "Link", options="CRM Lead", read_only=1, in_standard_filter=1),
+                _field("vobiz_call_time", "Vobiz Call Time", "Datetime", read_only=1, in_standard_filter=1),
+                _field("vobiz_call_direction", "Vobiz Direction", "Data", read_only=1, in_standard_filter=1),
+                _field("vobiz_call_status", "Vobiz Call Status", "Data", read_only=1, in_standard_filter=1),
+                _field("vobiz_lead_temperature", "Vobiz Lead Temperature", "Data", read_only=1, in_standard_filter=1),
+                _field("vobiz_lead_score", "Vobiz Lead Score", "Int", read_only=1, in_standard_filter=1),
+            ],
+        )
     if fields:
         create_custom_fields(fields, update=True, ignore_validate=True)
+    return fields
+
+
+def ensure_custom_fields_at_end(fields_by_doctype: dict[str, list[dict]]):
+    for doctype, custom_fields in fields_by_doctype.items():
+        desired_fieldnames = [field["fieldname"] for field in custom_fields]
+        desired_fieldname_set = set(desired_fieldnames)
+        meta = frappe.get_meta(doctype, cached=False)
+        current_order = [field.fieldname for field in meta.fields if field.fieldname]
+        existing_desired = [fieldname for fieldname in desired_fieldnames if fieldname in current_order]
+
+        if not existing_desired:
+            continue
+
+        new_order = [fieldname for fieldname in current_order if fieldname not in desired_fieldname_set]
+        new_order.extend(existing_desired)
+
+        if current_order != new_order:
+            frappe.db.delete("Property Setter", {"doc_type": doctype, "property": "field_order"})
+            frappe.make_property_setter(
+                {
+                    "doctype": doctype,
+                    "doctype_or_field": "DocType",
+                    "property": "field_order",
+                    "property_type": "Small Text",
+                    "value": json.dumps(new_order),
+                },
+                ignore_validate=True,
+                validate_fields_for_doctype=False,
+            )
+
+        previous = new_order[new_order.index(existing_desired[0]) - 1] if new_order.index(existing_desired[0]) else None
+        for fieldname in existing_desired:
+            name = frappe.db.get_value("Custom Field", {"dt": doctype, "fieldname": fieldname})
+            if name:
+                frappe.db.set_value("Custom Field", name, "insert_after", previous, update_modified=False)
+            previous = fieldname
+
+        frappe.clear_cache(doctype=doctype)
 
 
 def remove_duplicate_crm_lead_score_fields():
@@ -98,6 +171,14 @@ def remove_duplicate_crm_lead_score_fields():
         if name:
             frappe.delete_doc("Custom Field", name, ignore_permissions=True, force=True)
     frappe.clear_cache(doctype="CRM Lead")
+
+
+def remove_obsolete_layout_fields():
+    for doctype in ("CRM Lead", "Patient"):
+        name = frappe.db.get_value("Custom Field", {"dt": doctype, "fieldname": "vobiz_summary_cb"})
+        if name:
+            frappe.delete_doc("Custom Field", name, ignore_permissions=True, force=True)
+            frappe.clear_cache(doctype=doctype)
 
 
 def ensure_workspace():
