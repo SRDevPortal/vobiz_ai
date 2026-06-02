@@ -21,9 +21,11 @@ def setup():
     ensure_module_def()
     ensure_roles()
     custom_fields = ensure_custom_fields()
+    ensure_voice_agent_defaults()
+    ensure_default_voice_agent_profile()
     remove_duplicate_crm_lead_score_fields()
     remove_obsolete_layout_fields()
-    ensure_custom_fields_at_end(custom_fields)
+    ensure_custom_fields_at_end({dt: fields for dt, fields in custom_fields.items() if dt != "CRM Lead"})
     ensure_workspace()
 
 
@@ -73,19 +75,29 @@ def _chain_at_end(doctype: str, custom_fields: list[dict]) -> list[dict]:
 def ensure_custom_fields():
     fields = {}
     if frappe.db.exists("DocType", "CRM Lead"):
-        fields["CRM Lead"] = _chain_at_end(
-            "CRM Lead",
-            [
-                _field("vobiz_ai_tab", "Vobiz Calls", "Tab Break"),
-                _field("vobiz_ai_summary_sb", "Vobiz Summary", "Section Break"),
-                _field("vobiz_latest_call_time", "Latest Vobiz Call Time", "Datetime", read_only=1),
-                _field("vobiz_last_call_status", "Last Vobiz Call Status", "Data", read_only=1),
-                _field("vobiz_caller_classification", "Vobiz Caller Type", "Select", options="\nNew Lead\nOld Lead\nPatient", read_only=1),
-                _field("vobiz_kamal_involved", "Kamal Involved", "Check", read_only=1),
-                _field("vobiz_call_history_sb", "Vobiz Call History", "Section Break"),
-                _field("vobiz_ai_calls_html", "", "HTML"),
-            ],
-        )
+        fields["CRM Lead"] = [
+            _field("vobiz_ai_tab", "Vobiz Calls", "Tab Break", insert_after="lost_notes"),
+            _field("vobiz_ai_summary_sb", "Vobiz Summary", "Section Break", insert_after="vobiz_ai_tab"),
+            _field("vobiz_latest_call_time", "Latest Vobiz Call Time", "Datetime", read_only=1, insert_after="vobiz_ai_summary_sb"),
+            _field("vobiz_latest_call_log", "Latest Vobiz Call Log", "Link", options="Vobiz Call Log", read_only=1, insert_after="vobiz_latest_call_time"),
+            _field("vobiz_last_call_status", "Last Vobiz Call Status", "Data", read_only=1, insert_after="vobiz_latest_call_time"),
+            _field("vobiz_latest_query_time", "Latest Vobiz Query Time", "Datetime", read_only=1, insert_after="vobiz_last_call_status"),
+            _field("vobiz_call_alert_count", "Vobiz Call Alerts", "Int", read_only=1, insert_after="vobiz_latest_query_time"),
+            _field("vobiz_calls_seen_at", "Vobiz Calls Seen At", "Datetime", read_only=1, hidden=1, insert_after="vobiz_call_alert_count"),
+            _field("vobiz_last_call_event", "Last Vobiz Event", "Data", read_only=1, insert_after="vobiz_last_call_status"),
+            _field("vobiz_call_direction", "Last Vobiz Direction", "Data", read_only=1, insert_after="vobiz_last_call_event"),
+            _field("vobiz_call_duration", "Last Vobiz Duration", "Duration", read_only=1, insert_after="vobiz_call_direction"),
+            _field("vobiz_caller_classification", "Vobiz Caller Type", "Select", options="\nNew Lead\nOld Lead\nPatient", read_only=1, insert_after="vobiz_call_duration"),
+            _field("vobiz_summary_cb", "", "Column Break", insert_after="vobiz_caller_classification"),
+            _field("vobiz_kamal_involved", "Kamal Involved", "Check", read_only=1, insert_after="vobiz_summary_cb"),
+            _field("vobiz_recording_url", "Latest Recording URL", "Small Text", read_only=1, insert_after="vobiz_kamal_involved"),
+            _field("vobiz_transcription_text", "Latest Transcript", "Long Text", read_only=1, insert_after="vobiz_recording_url"),
+            _field("vobiz_ai_summary", "Latest AI Summary", "Long Text", read_only=1, insert_after="vobiz_transcription_text"),
+            _field("vobiz_ai_intent", "Latest AI Intent", "Small Text", read_only=1, insert_after="vobiz_ai_summary"),
+            _field("vobiz_ai_concerns", "Latest AI Concerns", "Long Text", read_only=1, insert_after="vobiz_ai_intent"),
+            _field("vobiz_calling_details_html", "Vobiz Calling Details", "HTML", insert_after="sr_lead_disease"),
+            _field("vobiz_ai_calls_html", "Vobiz Call History", "HTML", hidden=1, insert_after="vobiz_ai_concerns"),
+        ]
     if frappe.db.exists("DocType", "Patient"):
         fields["Patient"] = _chain_at_end(
             "Patient",
@@ -163,6 +175,84 @@ def ensure_custom_fields_at_end(fields_by_doctype: dict[str, list[dict]]):
         frappe.clear_cache(doctype=doctype)
 
 
+def ensure_voice_agent_defaults():
+    if not frappe.db.exists("DocType", "Vobiz AI Settings"):
+        return
+
+    defaults = {
+        "enable_voice_agent": 1,
+        "voice_agent_name": "KAMAL",
+        "system_prompt": (
+            "You are KAMAL, SRIAAS virtual care coordinator. Reply in the customer's language, "
+            "keep responses short, do not diagnose or prescribe, and move interested callers "
+            "to doctor callback or consultation."
+        ),
+        "greeting_instruction": (
+            "The call has just connected. Immediately greet the customer warmly in Hindi and "
+            "introduce yourself and SRIAAS."
+        ),
+        "gemini_live_model": "gemini-live-2.5-flash-native-audio",
+        "gemini_live_voice": "Puck",
+        "vertex_location": "us-central1",
+        "livekit_cli_project": "gemini-live",
+        "frappe_base_url": "",
+        "livekit_agent_name": "vobiz-gemini-live",
+        "sip_provider": "Vobiz",
+        "room_name_pattern": "gemini_live_{caller}_{random}",
+        "lead_creation_tool_name": "mcp_create_lead",
+        "medical_guardrail_policy": (
+            "The assistant is not a doctor. It must not diagnose, prescribe, guarantee cures, "
+            "or create medical urgency for sales. It should route medical decisions to the doctor team."
+        ),
+        "escalation_policy": (
+            "Escalate urgent symptoms, severe pain, bleeding, breathing difficulty, chest pain, "
+            "suicidal language, or life-risk messages to emergency care immediately."
+        ),
+        "allowed_voice_actions": "create_lead",
+    }
+
+    current = frappe.get_single("Vobiz AI Settings")
+    changed = False
+    for fieldname, value in defaults.items():
+        if current.get(fieldname) in (None, ""):
+            current.set(fieldname, value)
+            changed = True
+
+    if changed:
+        current.save(ignore_permissions=True)
+
+
+def ensure_default_voice_agent_profile():
+    if not frappe.db.exists("DocType", "Vobiz Voice Agent Profile"):
+        return
+    if frappe.db.exists("Vobiz Voice Agent Profile", "kamal-male-infertility"):
+        return
+
+    settings = frappe.get_single("Vobiz AI Settings")
+    frappe.get_doc(
+        {
+            "doctype": "Vobiz Voice Agent Profile",
+            "enabled": 1,
+            "profile_key": "kamal-male-infertility",
+            "agent_name": settings.voice_agent_name or "KAMAL",
+            "description": "Default SRIAAS male infertility and sexual health voice agent.",
+            "system_prompt": settings.system_prompt or "",
+            "greeting_instruction": settings.greeting_instruction or "",
+            "gemini_live_model": settings.gemini_live_model or "gemini-live-2.5-flash-native-audio",
+            "gemini_live_voice": settings.gemini_live_voice or "Puck",
+            "vertex_location": settings.vertex_location or "us-central1",
+            "google_cloud_project": settings.google_cloud_project or "",
+            "mcp_server_url": settings.mcp_server_url or "",
+            "lead_creation_tool_name": settings.lead_creation_tool_name or "mcp_create_lead",
+            "medical_guardrail_policy": settings.medical_guardrail_policy or "",
+            "escalation_policy": settings.escalation_policy or "",
+            "allowed_voice_actions": settings.allowed_voice_actions or "create_lead",
+            "livekit_agent_name": settings.livekit_agent_name or "vobiz-gemini-live",
+            "livekit_sync_status": "Not Synced",
+        }
+    ).insert(ignore_permissions=True)
+
+
 def remove_duplicate_crm_lead_score_fields():
     if not frappe.db.exists("DocType", "CRM Lead"):
         return
@@ -185,6 +275,8 @@ def ensure_workspace():
     shortcuts = [
         {"type": "DocType", "label": "Call Logs", "link_to": "Vobiz Call Log", "doc_view": "List", "icon": "phone"},
         {"type": "DocType", "label": "Account Mapping", "link_to": "Vobiz Account Mapping", "doc_view": "List", "icon": "settings"},
+        {"type": "DocType", "label": "Voice Agents", "link_to": "Vobiz Voice Agent Profile", "doc_view": "List", "icon": "bot"},
+        {"type": "DocType", "label": "Voice Routes", "link_to": "Vobiz Voice Agent Route", "doc_view": "List", "icon": "git-branch"},
         {"type": "DocType", "label": "Error Logs", "link_to": "Vobiz Error Log", "doc_view": "List", "icon": "alert-triangle"},
         {"type": "DocType", "label": "Settings", "link_to": "Vobiz AI Settings", "doc_view": "List", "icon": "sliders"},
         {"type": "DocType", "label": "Webhook Events", "link_to": "Vobiz Webhook Event", "doc_view": "List", "icon": "activity"},
@@ -192,6 +284,8 @@ def ensure_workspace():
     links = [
         {"type": "Link", "label": "Call Logs", "link_to": "Vobiz Call Log", "link_type": "DocType"},
         {"type": "Link", "label": "Account Mapping", "link_to": "Vobiz Account Mapping", "link_type": "DocType"},
+        {"type": "Link", "label": "Voice Agents", "link_to": "Vobiz Voice Agent Profile", "link_type": "DocType"},
+        {"type": "Link", "label": "Voice Routes", "link_to": "Vobiz Voice Agent Route", "link_type": "DocType"},
         {"type": "Link", "label": "Error Logs", "link_to": "Vobiz Error Log", "link_type": "DocType"},
         {"type": "Link", "label": "Webhook Events", "link_to": "Vobiz Webhook Event", "link_type": "DocType"},
         {"type": "Link", "label": "Settings", "link_to": "Vobiz AI Settings", "link_type": "DocType"},
@@ -200,6 +294,8 @@ def ensure_workspace():
         {"id": "vobiz_header", "type": "header", "data": {"text": "Vobiz AI", "level": 4, "col": 12}},
         {"id": "vobiz_call_logs", "type": "shortcut", "data": {"shortcut_name": "Call Logs", "col": 3}},
         {"id": "vobiz_mapping", "type": "shortcut", "data": {"shortcut_name": "Account Mapping", "col": 3}},
+        {"id": "vobiz_voice_agents", "type": "shortcut", "data": {"shortcut_name": "Voice Agents", "col": 3}},
+        {"id": "vobiz_voice_routes", "type": "shortcut", "data": {"shortcut_name": "Voice Routes", "col": 3}},
         {"id": "vobiz_errors", "type": "shortcut", "data": {"shortcut_name": "Error Logs", "col": 3}},
         {"id": "vobiz_settings", "type": "shortcut", "data": {"shortcut_name": "Settings", "col": 3}},
         {"id": "vobiz_spacer", "type": "spacer", "data": {"col": 12}},

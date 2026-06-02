@@ -1,6 +1,6 @@
 {
  "charts": [],
- "content": "[{\"id\": \"vobiz_header\", \"type\": \"header\", \"data\": {\"text\": \"Vobiz AI\", \"level\": 4, \"col\": 12}}, {\"id\": \"vobiz_call_logs\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Call Logs\", \"col\": 3}}, {\"id\": \"vobiz_mapping\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Account Mapping\", \"col\": 3}}, {\"id\": \"vobiz_errors\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Error Logs\", \"col\": 3}}, {\"id\": \"vobiz_settings\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Settings\", \"col\": 3}}, {\"id\": \"vobiz_spacer\", \"type\": \"spacer\", \"data\": {\"col\": 12}}, {\"id\": \"vobiz_ops_header\", \"type\": \"header\", \"data\": {\"text\": \"Operations\", \"level\": 5, \"col\": 12}}, {\"id\": \"vobiz_events\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Webhook Events\", \"col\": 3}}]",
+ "content": "[{\"id\":\"vobiz_header\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\">Vobiz AI</span>\",\"col\":12}},{\"id\":\"vobiz_call_logs\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Call Logs\",\"col\":3}},{\"id\":\"vobiz_mapping\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Account Mapping\",\"col\":3}},{\"id\":\"vobiz_voice_agents\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Voice Agents\",\"col\":3}},{\"id\":\"vobiz_voice_routes\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Voice Routes\",\"col\":3}},{\"id\":\"vobiz_errors\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Error Logs\",\"col\":3}},{\"id\":\"vobiz_settings\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Vobiz Ai Settings\",\"col\":3}},{\"id\":\"vobiz_spacer\",\"type\":\"spacer\",\"data\":{\"col\":12}},{\"id\":\"vobiz_ops_header\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\">Operations</span>\",\"col\":12}},{\"id\":\"vobiz_events\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Webhook Events\",\"col\":3}}]",
  "creation": "2026-05-27 17:50:45.210696",
  "custom_blocks": [],
  "docstatus": 0,
@@ -9,7 +9,7 @@
  "hide_custom": 0,
  "icon": "icon-call",
  "idx": 0,
- "indicator_color": "green",
+ "indicator_color": "",
  "is_hidden": 0,
  "label": "Vobiz AI",
  "links": [
@@ -29,6 +29,26 @@
    "label": "Account Mapping",
    "link_count": 0,
    "link_to": "Vobiz Account Mapping",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Voice Agents",
+   "link_count": 0,
+   "link_to": "Vobiz Voice Agent Profile",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Voice Routes",
+   "link_count": 0,
+   "link_to": "Vobiz Voice Agent Route",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
@@ -64,12 +84,13 @@
    "type": "Link"
   }
  ],
- "modified": "2026-05-28 11:14:09.453734",
+ "modified": "2026-06-01 15:50:52.100320",
  "modified_by": "Administrator",
  "module": "Vobiz AI",
  "name": "Vobiz AI",
  "number_cards": [],
  "owner": "Administrator",
+ "parent_page": "",
  "public": 1,
  "quick_lists": [],
  "roles": [],
@@ -84,6 +105,13 @@
   },
   {
    "doc_view": "List",
+   "icon": "sliders",
+   "label": "Vobiz Ai Settings",
+   "link_to": "Vobiz AI Settings",
+   "type": "DocType"
+  },
+  {
+   "doc_view": "List",
    "icon": "settings",
    "label": "Account Mapping",
    "link_to": "Vobiz Account Mapping",
@@ -91,16 +119,23 @@
   },
   {
    "doc_view": "List",
-   "icon": "alert-triangle",
-   "label": "Error Logs",
-   "link_to": "Vobiz Error Log",
+   "icon": "bot",
+   "label": "Voice Agents",
+   "link_to": "Vobiz Voice Agent Profile",
    "type": "DocType"
   },
   {
    "doc_view": "List",
-   "icon": "sliders",
-   "label": "Settings",
-   "link_to": "Vobiz AI Settings",
+   "icon": "git-branch",
+   "label": "Voice Routes",
+   "link_to": "Vobiz Voice Agent Route",
+   "type": "DocType"
+  },
+  {
+   "doc_view": "List",
+   "icon": "alert-triangle",
+   "label": "Error Logs",
+   "link_to": "Vobiz Error Log",
    "type": "DocType"
   },
   {

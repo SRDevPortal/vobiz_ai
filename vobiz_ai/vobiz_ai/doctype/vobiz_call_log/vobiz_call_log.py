@@ -2,6 +2,14 @@ from frappe.model.document import Document
 
 
 class VobizCallLog(Document):
+	def on_trash(self):
+		try:
+			from vobiz_click_to_call.services.delete_cleanup import cleanup_call_log_reverse_links
+
+			cleanup_call_log_reverse_links(self)
+		except Exception:
+			pass
+
 	def before_save(self):
 		if self.request_uuid and not self.request_id:
 			self.request_id = self.request_uuid

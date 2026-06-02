@@ -18,6 +18,7 @@ doctype_js = {
 }
 
 doctype_list_js = {
+    "CRM Lead": "public/js/crm_lead_vobiz_list.js",
     "Patient": "public/js/patient_vobiz_list.js",
 }
 

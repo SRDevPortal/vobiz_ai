@@ -38,13 +38,14 @@ def process_payload(payload: dict, webhook_event: str | None = None) -> str:
 		frappe.throw("Vobiz payload has no call identifier")
 
 	call = _get_or_create_call(call_key)
+	is_new_call = call.is_new()
 	_update_call_from_payload(call, payload)
 	_resolve_mapping(call, payload)
 	_link_lead_and_patient(call)
 	call.raw_payload = as_json(payload)
 	call.save(ignore_permissions=True)
 	_create_or_update_patient_issue(call)
-	_sync_linked_summaries(call)
+	_sync_linked_summaries(call, is_new_call=is_new_call)
 	_maybe_queue_ai(call)
 	return call.name
 
@@ -277,12 +278,22 @@ def _create_lead(call) -> str:
 	return lead.name
 
 
-def _sync_linked_summaries(call):
+def _sync_linked_summaries(call, is_new_call: bool = False):
 	values = {
+		"vobiz_latest_call_log": call.name,
 		"vobiz_latest_call_time": call.start_time or call.event_timestamp,
+		"vobiz_latest_query_time": call.start_time or call.event_timestamp,
 		"vobiz_last_call_status": call.status,
+		"vobiz_last_call_event": call.event,
+		"vobiz_call_direction": call.direction,
+		"vobiz_call_duration": call.duration,
 		"vobiz_caller_classification": call.caller_classification,
 		"vobiz_kamal_involved": call.kamal_involved,
+		"vobiz_recording_url": call.recording_url,
+		"vobiz_transcription_text": call.transcription_text or call.transcript_text,
+		"vobiz_ai_summary": call.ai_summary,
+		"vobiz_ai_intent": call.ai_intent,
+		"vobiz_ai_concerns": call.ai_concerns,
 	}
 	lead_values = {
 		"lead_temperature": call.lead_temperature,
@@ -303,10 +314,48 @@ def _sync_linked_summaries(call):
 		update = {k: v for k, v in values.items() if meta.get_field(k) and v not in (None, "")}
 		if doctype == "CRM Lead":
 			update.update({k: v for k, v in lead_values.items() if meta.get_field(k) and v not in (None, "")})
+			update.update(_lead_call_counts(name, meta))
+			if is_new_call and meta.get_field("vobiz_call_alert_count"):
+				seen = frappe.db.get_value("CRM Lead", name, "vobiz_calls_seen_at") if meta.get_field("vobiz_calls_seen_at") else None
+				if seen:
+					update["vobiz_call_alert_count"] = frappe.db.count(
+						"Vobiz Call Log",
+						{"crm_lead": name, "creation": [">", seen]},
+					)
+				else:
+					recent_cutoff = frappe.utils.add_to_date(frappe.utils.now_datetime(), minutes=-90)
+					update["vobiz_call_alert_count"] = frappe.db.count(
+						"Vobiz Call Log",
+						{"crm_lead": name, "creation": [">", recent_cutoff]},
+					)
 		else:
 			update.update({k: v for k, v in patient_values.items() if meta.get_field(k) and v not in (None, "")})
 		if update:
 			frappe.db.set_value(doctype, name, update, update_modified=False)
+
+
+def _lead_call_counts(lead: str, meta) -> dict:
+	if not lead:
+		return {}
+	rows = frappe.db.sql(
+		"""
+		SELECT
+			COUNT(*) AS total,
+			SUM(CASE WHEN status IN ('Completed', 'Connected', 'Customer Answered', 'Agent Answered', 'In Progress') THEN 1 ELSE 0 END) AS connected,
+			SUM(CASE WHEN status IN ('No Answer', 'Busy', 'Failed', 'Canceled', 'Cancelled') THEN 1 ELSE 0 END) AS missed
+		FROM `tabVobiz Call Log`
+		WHERE crm_lead = %s
+		""",
+		(lead,),
+		as_dict=True,
+	)
+	row = rows[0] if rows else {}
+	values = {
+		"vobiz_total_call_attempts": int(row.get("total") or 0),
+		"vobiz_connected_call_count": int(row.get("connected") or 0),
+		"vobiz_missed_call_count": int(row.get("missed") or 0),
+	}
+	return {key: value for key, value in values.items() if meta.get_field(key)}
 
 
 def _detect_transcript_language(text: str | None) -> str:
@@ -469,6 +518,10 @@ def get_related_calls(doctype: str, name: str):
 			"lead_score",
 			"kamal_involved",
 			"recording_url",
+			"transcription_text",
+			"transcript_text",
+			"ai_summary",
+			"ai_intent",
 		],
 		order_by="start_time desc, modified desc",
 		limit_page_length=50,
