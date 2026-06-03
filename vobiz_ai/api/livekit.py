@@ -114,6 +114,20 @@ def _require_cloud_agent_sync_settings(settings) -> None:
 		frappe.throw("Please set these fields in Vobiz AI Settings first: " + ", ".join(missing))
 
 
+def _require_livekit_route_sync_settings(settings) -> None:
+	missing = []
+	if not _get_livekit_cloud_project(settings):
+		missing.append("LiveKit Cloud Project ID / Slug")
+	if not (settings.get("livekit_url") or "").strip():
+		missing.append("LiveKit URL")
+	if not get_password(settings, "livekit_api_key"):
+		missing.append("LiveKit API Key")
+	if not get_password(settings, "livekit_api_secret"):
+		missing.append("LiveKit API Secret")
+	if missing:
+		frappe.throw("Please set these fields in Vobiz AI Settings first: " + ", ".join(missing))
+
+
 def _json_from_lk_output(output: str) -> dict[str, Any]:
 	match = re.search(r"\{.*\}", output or "", flags=re.S)
 	if not match:
@@ -368,6 +382,44 @@ def sync_frappe_base_url_secret() -> dict[str, Any]:
 		{},
 	)
 	return {"ok": True, "message": f"LiveKit agent {agent_id} now uses {base_url}. Agent secrets were updated and LiveKit will restart the agent."}
+
+
+@frappe.whitelist()
+def test_livekit_connection() -> dict[str, Any]:
+	_require_manager()
+	settings = get_settings()
+	_require_livekit_route_sync_settings(settings)
+	output = _run_lk(["agent", "list"], timeout=45)
+	return {
+		"ok": True,
+		"message": "LiveKit connection is working. Frappe can call LiveKit with the configured project and API credentials.",
+		"output": output[-1000:] if output else "",
+	}
+
+
+@frappe.whitelist()
+def sync_all_voice_agent_routes() -> dict[str, Any]:
+	_require_manager()
+	settings = get_settings()
+	_require_livekit_route_sync_settings(settings)
+	routes = frappe.get_all(
+		"Vobiz Voice Agent Route",
+		filters={"active": 1},
+		pluck="name",
+		order_by="modified desc",
+	)
+	results = []
+	for route in routes:
+		try:
+			results.append(_sync_voice_agent_route(route))
+		except Exception:
+			results.append({"ok": False, "route": route, "error": frappe.get_traceback()})
+	return {
+		"ok": all(row.get("ok") for row in results),
+		"count": len(results),
+		"results": results,
+		"message": f"Synced {sum(1 for row in results if row.get('ok'))} of {len(results)} active LiveKit route(s).",
+	}
 
 
 def _get_public_frappe_base_url(settings) -> str:
