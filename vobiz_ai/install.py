@@ -290,6 +290,16 @@ def ensure_workspace():
         {"type": "Link", "label": "Webhook Events", "link_to": "Vobiz Webhook Event", "link_type": "DocType"},
         {"type": "Link", "label": "Settings", "link_to": "Vobiz AI Settings", "link_type": "DocType"},
     ]
+    required_doctypes = sorted({row["link_to"] for row in shortcuts + links})
+    missing_doctypes = [doctype for doctype in required_doctypes if not frappe.db.exists("DocType", doctype)]
+    if missing_doctypes:
+        frappe.log_error(
+            "Skipped Vobiz AI workspace creation because DocTypes are not ready yet: "
+            + ", ".join(missing_doctypes),
+            "Vobiz AI workspace setup skipped",
+        )
+        return
+
     content = [
         {"id": "vobiz_header", "type": "header", "data": {"text": "Vobiz AI", "level": 4, "col": 12}},
         {"id": "vobiz_call_logs", "type": "shortcut", "data": {"shortcut_name": "Call Logs", "col": 3}},
