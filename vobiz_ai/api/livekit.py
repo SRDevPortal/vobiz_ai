@@ -343,7 +343,7 @@ async def _find_rule_id_by_name_async(name: str) -> str:
 	livekit_url, api_key, api_secret = _livekit_credentials(settings)
 	livekit_api = api.LiveKitAPI(livekit_url, api_key, api_secret)
 	try:
-		response = await livekit_api.sip.list_sip_dispatch_rule(api.ListSIPDispatchRuleRequest())
+		response = await livekit_api.sip.list_dispatch_rule(api.ListSIPDispatchRuleRequest())
 		for item in response.items:
 			if item.name == name:
 				return item.sip_dispatch_rule_id or ""
@@ -395,6 +395,39 @@ def _create_or_update_dispatch_rule(rule_id: str, payload: dict[str, Any]):
 	return _run_async(_create_or_update_dispatch_rule_async(rule_id, payload))
 
 
+def _dispatch_rule_matches_payload(item, payload: dict[str, Any]) -> bool:
+	expected_trunks = set(payload.get("trunkIds") or [])
+	if expected_trunks and set(item.trunk_ids or []) != expected_trunks:
+		return False
+
+	agents = payload.get("roomConfig", {}).get("agents") or []
+	if agents:
+		livekit_agents = list(item.room_config.agents or [])
+		for expected in agents:
+			if not any(
+				agent.agent_name == (expected.get("agentName") or "")
+				and (agent.metadata or "") == (expected.get("metadata") or "")
+				for agent in livekit_agents
+			):
+				return False
+
+	return True
+
+
+async def _verified_dispatch_rule_async(livekit_api, payload: dict[str, Any], rule_id: str = ""):
+	from livekit import api
+
+	response = await livekit_api.sip.list_dispatch_rule(api.ListSIPDispatchRuleRequest())
+	name = payload.get("name") or ""
+	for item in response.items:
+		if rule_id and item.sip_dispatch_rule_id == rule_id and _dispatch_rule_matches_payload(item, payload):
+			return item
+	for item in response.items:
+		if item.name == name and _dispatch_rule_matches_payload(item, payload):
+			return item
+	return None
+
+
 async def _create_or_update_dispatch_rule_async(rule_id: str, payload: dict[str, Any]):
 	from livekit import api
 
@@ -403,8 +436,16 @@ async def _create_or_update_dispatch_rule_async(rule_id: str, payload: dict[str,
 	livekit_api = api.LiveKitAPI(livekit_url, api_key, api_secret)
 	try:
 		if rule_id:
-			return await livekit_api.sip.update_sip_dispatch_rule(rule_id, _livekit_dispatch_update(payload))
-		return await livekit_api.sip.create_sip_dispatch_rule(_livekit_dispatch_request(payload))
+			await livekit_api.sip.update_dispatch_rule(rule_id, _livekit_dispatch_update(payload))
+		else:
+			created = await livekit_api.sip.create_dispatch_rule(_livekit_dispatch_request(payload))
+			rule_id = getattr(created, "sip_dispatch_rule_id", "") or rule_id
+		verified = await _verified_dispatch_rule_async(livekit_api, payload, rule_id)
+		if not verified:
+			frappe.throw(
+				"LiveKit accepted the dispatch sync request, but the expected dispatch rule was not found after verification."
+			)
+		return verified
 	finally:
 		await livekit_api.aclose()
 
@@ -494,7 +535,7 @@ async def _count_livekit_dispatch_rules_async(settings) -> int:
 	livekit_url, api_key, api_secret = _livekit_credentials(settings)
 	livekit_api = api.LiveKitAPI(livekit_url, api_key, api_secret)
 	try:
-		response = await livekit_api.sip.list_sip_dispatch_rule(api.ListSIPDispatchRuleRequest())
+		response = await livekit_api.sip.list_dispatch_rule(api.ListSIPDispatchRuleRequest())
 		return len(response.items)
 	finally:
 		await livekit_api.aclose()
