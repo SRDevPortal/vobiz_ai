@@ -181,7 +181,6 @@ def ensure_voice_agent_defaults():
 
     defaults = {
         "enable_voice_agent": 1,
-        "voice_agent_name": "KAMAL",
         "system_prompt": (
             "You are KAMAL, SRIAAS virtual care coordinator. Reply in the customer's language, "
             "keep responses short, do not diagnose or prescribe, and move interested callers "
@@ -234,20 +233,20 @@ def ensure_default_voice_agent_profile():
             "doctype": "Vobiz Voice Agent Profile",
             "enabled": 1,
             "profile_key": "kamal-male-infertility",
-            "agent_name": settings.voice_agent_name or "KAMAL",
+            "agent_name": getattr(settings, "voice_agent_name", None) or getattr(settings, "agent_name", None) or "KAMAL",
             "description": "Default SRIAAS male infertility and sexual health voice agent.",
-            "system_prompt": settings.system_prompt or "",
-            "greeting_instruction": settings.greeting_instruction or "",
-            "gemini_live_model": settings.gemini_live_model or "gemini-live-2.5-flash-native-audio",
-            "gemini_live_voice": settings.gemini_live_voice or "Puck",
-            "vertex_location": settings.vertex_location or "us-central1",
-            "google_cloud_project": settings.google_cloud_project or "",
-            "mcp_server_url": settings.mcp_server_url or "",
-            "lead_creation_tool_name": settings.lead_creation_tool_name or "mcp_create_lead",
-            "medical_guardrail_policy": settings.medical_guardrail_policy or "",
-            "escalation_policy": settings.escalation_policy or "",
-            "allowed_voice_actions": settings.allowed_voice_actions or "create_lead",
-            "livekit_agent_name": settings.livekit_agent_name or "vobiz-gemini-live",
+            "system_prompt": getattr(settings, "system_prompt", None) or "",
+            "greeting_instruction": getattr(settings, "greeting_instruction", None) or "",
+            "gemini_live_model": getattr(settings, "gemini_live_model", None) or "gemini-live-2.5-flash-native-audio",
+            "gemini_live_voice": getattr(settings, "gemini_live_voice", None) or "Puck",
+            "vertex_location": getattr(settings, "vertex_location", None) or "us-central1",
+            "google_cloud_project": getattr(settings, "google_cloud_project", None) or "",
+            "mcp_server_url": getattr(settings, "mcp_server_url", None) or "",
+            "lead_creation_tool_name": getattr(settings, "lead_creation_tool_name", None) or "mcp_create_lead",
+            "medical_guardrail_policy": getattr(settings, "medical_guardrail_policy", None) or "",
+            "escalation_policy": getattr(settings, "escalation_policy", None) or "",
+            "allowed_voice_actions": getattr(settings, "allowed_voice_actions", None) or "create_lead",
+            "livekit_agent_name": getattr(settings, "livekit_agent_name", None) or "vobiz-gemini-live",
             "livekit_sync_status": "Not Synced",
         }
     ).insert(ignore_permissions=True)
