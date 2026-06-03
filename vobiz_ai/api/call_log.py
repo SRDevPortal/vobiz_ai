@@ -144,8 +144,12 @@ def get_lead_call_badges(lead_names=None):
 		as_dict=True,
 	)
 	seen_at = {
-		lead: frappe.db.get_value("CRM Lead", lead, "vobiz_calls_seen_at")
-		for lead in allowed
+		row.name: row.vobiz_calls_seen_at
+		for row in frappe.get_all(
+			"CRM Lead",
+			filters={"name": ["in", allowed]},
+			fields=["name", "vobiz_calls_seen_at"],
+		)
 	}
 	unread_counts = _get_unread_call_counts(allowed, seen_at)
 	latest_logs = {}
@@ -172,14 +176,35 @@ def get_lead_call_badges(lead_names=None):
 
 
 def _get_unread_call_counts(leads: list[str], seen_at: dict) -> dict:
-	out = {}
+	out = {lead: 0 for lead in leads}
+	if not leads:
+		return out
+
 	recent_cutoff = frappe.utils.add_to_date(frappe.utils.now_datetime(), minutes=-90)
-	for lead in leads:
-		seen = seen_at.get(lead)
-		if seen:
-			out[lead] = frappe.db.count("Vobiz Call Log", {"crm_lead": lead, "creation": [">", seen]})
-		else:
-			out[lead] = frappe.db.count("Vobiz Call Log", {"crm_lead": lead, "creation": [">", recent_cutoff]})
+	rows = frappe.db.sql(
+		"""
+		SELECT
+			log.crm_lead,
+			COUNT(*) AS count
+		FROM `tabVobiz Call Log` log
+		WHERE log.crm_lead IN %(leads)s
+		  AND log.creation > COALESCE(
+			(
+				SELECT lead.vobiz_calls_seen_at
+				FROM `tabCRM Lead` lead
+				WHERE lead.name = log.crm_lead
+				  AND lead.vobiz_calls_seen_at IS NOT NULL
+				  AND lead.vobiz_calls_seen_at != ''
+			),
+			%(recent_cutoff)s
+		  )
+		GROUP BY log.crm_lead
+		""",
+		{"leads": tuple(leads), "recent_cutoff": recent_cutoff},
+		as_dict=True,
+	)
+	for row in rows:
+		out[row.crm_lead] = int(row.count or 0)
 	return out
 
 
