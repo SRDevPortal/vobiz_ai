@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import re
@@ -51,6 +52,28 @@ def _livekit_env(settings) -> dict[str, str]:
 			}
 		)
 	return env
+
+
+def _livekit_credentials(settings) -> tuple[str, str, str]:
+	livekit_url = (settings.livekit_url or "").strip()
+	api_key = get_password(settings, "livekit_api_key")
+	api_secret = get_password(settings, "livekit_api_secret")
+	if not livekit_url or not api_key or not api_secret:
+		frappe.throw("LiveKit URL, API Key, and API Secret are required in Vobiz AI Settings.")
+	return livekit_url, api_key, api_secret
+
+
+def _run_async(coro):
+	try:
+		asyncio.get_running_loop()
+	except RuntimeError:
+		return asyncio.run(coro)
+
+	loop = asyncio.new_event_loop()
+	try:
+		return loop.run_until_complete(coro)
+	finally:
+		loop.close()
 
 
 def _run_lk(args: list[str], payload: dict[str, Any] | None = None, timeout: int = 45) -> str:
@@ -116,8 +139,6 @@ def _require_cloud_agent_sync_settings(settings) -> None:
 
 def _require_livekit_route_sync_settings(settings) -> None:
 	missing = []
-	if not _get_livekit_cloud_project(settings):
-		missing.append("LiveKit Cloud Project ID / Slug")
 	if not (settings.get("livekit_url") or "").strip():
 		missing.append("LiveKit URL")
 	if not get_password(settings, "livekit_api_key"):
@@ -309,12 +330,85 @@ def _dispatch_rule_payload(route, profile) -> dict[str, Any]:
 
 
 def _find_rule_id_by_name(name: str) -> str:
-	output = _run_lk(["sip", "dispatch", "list", "--json"])
-	data = _json_from_lk_output(output)
-	for item in data.get("items") or []:
-		if item.get("name") == name:
-			return item.get("sipDispatchRuleId") or ""
+	return _run_async(_find_rule_id_by_name_async(name))
+
+
+async def _find_rule_id_by_name_async(name: str) -> str:
+	from livekit import api
+
+	settings = get_settings()
+	livekit_url, api_key, api_secret = _livekit_credentials(settings)
+	livekit_api = api.LiveKitAPI(livekit_url, api_key, api_secret)
+	try:
+		response = await livekit_api.sip.list_sip_dispatch_rule(api.ListSIPDispatchRuleRequest())
+		for item in response.items:
+			if item.name == name:
+				return item.sip_dispatch_rule_id or ""
+	finally:
+		await livekit_api.aclose()
 	return ""
+
+
+def _livekit_dispatch_request(payload: dict[str, Any]):
+	from livekit import api
+
+	rule_data = payload.get("rule", {}).get("dispatchRuleIndividual") or {}
+	agents = []
+	for agent in payload.get("roomConfig", {}).get("agents") or []:
+		agents.append(
+			api.RoomAgentDispatch(
+				agent_name=agent.get("agentName") or "",
+				metadata=agent.get("metadata") or "",
+			)
+		)
+	room_config = api.RoomConfiguration(agents=agents) if agents else None
+	return api.CreateSIPDispatchRuleRequest(
+		dispatch_rule=api.SIPDispatchRule(
+			dispatch_rule_individual=api.SIPDispatchRuleIndividual(
+				room_prefix=rule_data.get("roomPrefix") or "vobiz-",
+			)
+		),
+		trunk_ids=payload.get("trunkIds") or [],
+		name=payload.get("name") or "",
+		attributes=payload.get("attributes") or {},
+		room_config=room_config,
+	)
+
+
+def _livekit_dispatch_update(payload: dict[str, Any]):
+	from livekit import api
+	from livekit.protocol.models import ListUpdate
+
+	request = _livekit_dispatch_request(payload)
+	return api.SIPDispatchRuleUpdate(
+		trunk_ids=ListUpdate(set=request.trunk_ids),
+		rule=request.dispatch_rule,
+		name=request.name,
+		attributes=request.attributes,
+	)
+
+
+def _create_or_update_dispatch_rule(rule_id: str, payload: dict[str, Any]):
+	return _run_async(_create_or_update_dispatch_rule_async(rule_id, payload))
+
+
+async def _create_or_update_dispatch_rule_async(rule_id: str, payload: dict[str, Any]):
+	from livekit import api
+
+	settings = get_settings()
+	livekit_url, api_key, api_secret = _livekit_credentials(settings)
+	livekit_api = api.LiveKitAPI(livekit_url, api_key, api_secret)
+	try:
+		if rule_id:
+			return await livekit_api.sip.update_sip_dispatch_rule(
+				api.UpdateSIPDispatchRuleRequest(
+					sip_dispatch_rule_id=rule_id,
+					update=_livekit_dispatch_update(payload),
+				)
+			)
+		return await livekit_api.sip.create_sip_dispatch_rule(_livekit_dispatch_request(payload))
+	finally:
+		await livekit_api.aclose()
 
 
 def _mark_sync(route, profile, status: str, rule_id: str = "", error: str = "") -> None:
@@ -389,12 +483,23 @@ def test_livekit_connection() -> dict[str, Any]:
 	_require_manager()
 	settings = get_settings()
 	_require_livekit_route_sync_settings(settings)
-	output = _run_lk(["agent", "list"], timeout=45)
+	rule_count = _run_async(_count_livekit_dispatch_rules_async(settings))
 	return {
 		"ok": True,
-		"message": "LiveKit connection is working. Frappe can call LiveKit with the configured project and API credentials.",
-		"output": output[-1000:] if output else "",
+		"message": f"LiveKit connection is working. Frappe can call LiveKit SIP APIs with the configured API credentials. Dispatch rules found: {rule_count}.",
 	}
+
+
+async def _count_livekit_dispatch_rules_async(settings) -> int:
+	from livekit import api
+
+	livekit_url, api_key, api_secret = _livekit_credentials(settings)
+	livekit_api = api.LiveKitAPI(livekit_url, api_key, api_secret)
+	try:
+		response = await livekit_api.sip.list_sip_dispatch_rule(api.ListSIPDispatchRuleRequest())
+		return len(response.items)
+	finally:
+		await livekit_api.aclose()
 
 
 @frappe.whitelist()
@@ -549,23 +654,8 @@ def _sync_voice_agent_route(route: str) -> dict[str, Any]:
 	payload = _dispatch_rule_payload(doc, profile)
 	try:
 		rule_id = doc.livekit_dispatch_rule_id or _find_rule_id_by_name(payload["name"])
-		if rule_id:
-			_run_lk(
-				[
-					"sip",
-					"dispatch",
-					"update",
-					"--id",
-					rule_id,
-					"--trunks",
-					doc.livekit_inbound_trunk_id,
-					"-",
-				],
-				payload,
-			)
-		else:
-			_run_lk(["sip", "dispatch", "create", "-"], {"dispatch_rule": payload})
-			rule_id = _find_rule_id_by_name(payload["name"])
+		synced_rule = _create_or_update_dispatch_rule(rule_id, payload)
+		rule_id = getattr(synced_rule, "sip_dispatch_rule_id", "") or rule_id or _find_rule_id_by_name(payload["name"])
 		_mark_sync(doc, profile, "Synced", rule_id=rule_id)
 		return {
 			"ok": True,
