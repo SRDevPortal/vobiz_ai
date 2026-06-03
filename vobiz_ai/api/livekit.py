@@ -163,11 +163,7 @@ def _ensure_agent_config(settings, profile, agent_id: str = "") -> Path:
 
 
 def _profile_secret_args(settings, profile) -> list[str]:
-	base_url = (settings.get("frappe_base_url") or "").strip().rstrip("/")
-	if not base_url:
-		frappe.throw("Public Frappe Base URL is required in Vobiz AI Settings.")
-	if not base_url.startswith("https://"):
-		frappe.throw("Public Frappe Base URL must start with https://")
+	base_url = _get_public_frappe_base_url(settings)
 
 	dispatch_name = (profile.livekit_agent_name or "").strip()
 	if not dispatch_name:
@@ -323,12 +319,7 @@ def _mark_profile_sync(profile, status: str, error: str = "") -> None:
 def sync_frappe_base_url_secret() -> dict[str, Any]:
 	_require_manager()
 	settings = get_settings()
-	base_url = (settings.get("frappe_base_url") or "").strip().rstrip("/")
-	if not base_url:
-		frappe.throw("Public Frappe Base URL is required in Vobiz AI Settings.")
-	if not base_url.startswith("https://"):
-		frappe.throw("Public Frappe Base URL must start with https://")
-
+	base_url = _get_public_frappe_base_url(settings)
 	agent_id = "CA_MLFjH7ffEbnd"
 	_run_lk_with_optional_env(
 		[
@@ -343,6 +334,15 @@ def sync_frappe_base_url_secret() -> dict[str, Any]:
 		{},
 	)
 	return {"ok": True, "message": f"LiveKit agent {agent_id} now uses {base_url}"}
+
+
+def _get_public_frappe_base_url(settings) -> str:
+	base_url = (settings.get("frappe_base_url") or "").strip().rstrip("/")
+	if not base_url:
+		frappe.throw("Public Frappe Base URL is required in Vobiz AI Settings.")
+	if not base_url.startswith(("http://", "https://")):
+		frappe.throw("Public Frappe Base URL must start with http:// or https://")
+	return base_url
 
 
 @frappe.whitelist()

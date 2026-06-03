@@ -28,6 +28,7 @@ from vobiz_ai.api.utils import (
 	parse_dt,
 	seconds_to_duration,
 )
+from vobiz_click_to_call.api.recording import recording_proxy_url
 
 WEBHOOK_BATCH_SIZE = 10
 
@@ -503,7 +504,7 @@ def get_related_calls(doctype: str, name: str):
 	if doctype not in ("CRM Lead", "Patient"):
 		frappe.throw("Unsupported doctype")
 	filters = {"crm_lead": name} if doctype == "CRM Lead" else {"patient": name}
-	return frappe.get_all(
+	rows = frappe.get_all(
 		"Vobiz Call Log",
 		filters=filters,
 		fields=[
@@ -526,3 +527,6 @@ def get_related_calls(doctype: str, name: str):
 		order_by="start_time desc, modified desc",
 		limit_page_length=50,
 	)
+	for row in rows:
+		row["recording_download_url"] = recording_proxy_url(row.name) if row.get("recording_url") else ""
+	return rows
