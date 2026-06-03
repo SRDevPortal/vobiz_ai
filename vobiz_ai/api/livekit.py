@@ -363,10 +363,10 @@ def _livekit_dispatch_request(payload: dict[str, Any]):
 				agent_name=agent.get("agentName") or "",
 				metadata=agent.get("metadata") or "",
 			)
-		)
+	)
 	room_config = api.RoomConfiguration(agents=agents) if agents else None
 	return api.CreateSIPDispatchRuleRequest(
-		dispatch_rule=api.SIPDispatchRule(
+		rule=api.SIPDispatchRule(
 			dispatch_rule_individual=api.SIPDispatchRuleIndividual(
 				room_prefix=rule_data.get("roomPrefix") or "vobiz-",
 			)
