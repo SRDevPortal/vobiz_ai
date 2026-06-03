@@ -28,7 +28,11 @@ from vobiz_ai.api.utils import (
 	parse_dt,
 	seconds_to_duration,
 )
-from vobiz_click_to_call.api.recording import recording_proxy_url
+try:
+	from vobiz_click_to_call.api.recording import recording_proxy_url
+except ImportError:
+	def recording_proxy_url(call_log: str) -> str:
+		return frappe.db.get_value("Vobiz Call Log", call_log, "recording_url") or ""
 
 WEBHOOK_BATCH_SIZE = 10
 
