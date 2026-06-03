@@ -55,7 +55,7 @@ def _livekit_env(settings) -> dict[str, str]:
 
 def _run_lk(args: list[str], payload: dict[str, Any] | None = None, timeout: int = 45) -> str:
 	settings = get_settings()
-	project = (settings.get("livekit_cli_project") or "").strip()
+	project = _get_livekit_cloud_project(settings)
 	if project and "--project" not in args:
 		args = ["--project", project, *args]
 	process = subprocess.run(
@@ -75,7 +75,7 @@ def _run_lk(args: list[str], payload: dict[str, Any] | None = None, timeout: int
 
 def _run_lk_with_optional_env(args: list[str], extra_env: dict[str, str], timeout: int = 45) -> str:
 	settings = get_settings()
-	project = (settings.get("livekit_cli_project") or "").strip()
+	project = _get_livekit_cloud_project(settings)
 	if project and "--project" not in args:
 		args = ["--project", project, *args]
 	env = _livekit_env(settings)
@@ -92,6 +92,26 @@ def _run_lk_with_optional_env(args: list[str], extra_env: dict[str, str], timeou
 		message = (process.stderr or process.stdout or "LiveKit CLI command failed").strip()
 		frappe.throw(message)
 	return process.stdout or ""
+
+
+def _get_livekit_cloud_project(settings) -> str:
+	return (settings.get("livekit_cli_project") or "").strip()
+
+
+def _require_cloud_agent_sync_settings(settings) -> None:
+	missing = []
+	if not _get_livekit_cloud_project(settings):
+		missing.append("LiveKit Cloud Project ID / Slug")
+	if not (settings.get("livekit_url") or "").strip():
+		missing.append("LiveKit URL")
+	if not get_password(settings, "livekit_api_key"):
+		missing.append("LiveKit API Key")
+	if not get_password(settings, "livekit_api_secret"):
+		missing.append("LiveKit API Secret")
+	if not (settings.get("livekit_cloud_agent_id") or "").strip():
+		missing.append("LiveKit Cloud Agent ID")
+	if missing:
+		frappe.throw("Please set these fields in Vobiz AI Settings first: " + ", ".join(missing))
 
 
 def _json_from_lk_output(output: str) -> dict[str, Any]:
@@ -319,21 +339,35 @@ def _mark_profile_sync(profile, status: str, error: str = "") -> None:
 def sync_frappe_base_url_secret() -> dict[str, Any]:
 	_require_manager()
 	settings = get_settings()
+	_require_cloud_agent_sync_settings(settings)
 	base_url = _get_public_frappe_base_url(settings)
-	agent_id = "CA_MLFjH7ffEbnd"
+	agent_id = (settings.get("livekit_cloud_agent_id") or "").strip()
+
+	config_secret = get_password(settings, "voice_agent_config_secret")
+	secrets = [f"FRAPPE_BASE_URL={base_url}"]
+	if config_secret:
+		secrets.extend(
+			[
+				f"VOICE_AGENT_CONFIG_SECRET={config_secret}",
+				f"X_VOICE_AGENT_SECRET={config_secret}",
+			]
+		)
+
+	args = [
+		"agent",
+		"update-secrets",
+		"--id",
+		agent_id,
+	]
+	for secret in secrets:
+		args.extend(["--secrets", secret])
+	args.append("--ignore-empty-secrets")
+
 	_run_lk_with_optional_env(
-		[
-			"agent",
-			"update-secrets",
-			"--id",
-			agent_id,
-			"--secrets",
-			f"FRAPPE_BASE_URL={base_url}",
-			"--ignore-empty-secrets",
-		],
+		args,
 		{},
 	)
-	return {"ok": True, "message": f"LiveKit agent {agent_id} now uses {base_url}"}
+	return {"ok": True, "message": f"LiveKit agent {agent_id} now uses {base_url}. Agent secrets were updated and LiveKit will restart the agent."}
 
 
 def _get_public_frappe_base_url(settings) -> str:

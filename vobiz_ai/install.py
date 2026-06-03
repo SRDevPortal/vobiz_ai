@@ -195,6 +195,7 @@ def ensure_voice_agent_defaults():
         "gemini_live_voice": "Puck",
         "vertex_location": "us-central1",
         "livekit_cli_project": "gemini-live",
+        "livekit_cloud_agent_id": "",
         "frappe_base_url": "",
         "livekit_agent_name": "vobiz-gemini-live",
         "sip_provider": "Vobiz",
