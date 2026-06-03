@@ -380,14 +380,14 @@ def _livekit_dispatch_request(payload: dict[str, Any]):
 
 def _livekit_dispatch_update(payload: dict[str, Any]):
 	from livekit import api
-	from livekit.protocol.models import ListUpdate
 
 	request = _livekit_dispatch_request(payload)
-	return api.SIPDispatchRuleUpdate(
-		trunk_ids=ListUpdate(set=request.trunk_ids),
+	return api.SIPDispatchRuleInfo(
 		rule=request.rule,
+		trunk_ids=request.trunk_ids,
 		name=request.name,
 		attributes=request.attributes,
+		room_config=request.room_config,
 	)
 
 
@@ -403,12 +403,7 @@ async def _create_or_update_dispatch_rule_async(rule_id: str, payload: dict[str,
 	livekit_api = api.LiveKitAPI(livekit_url, api_key, api_secret)
 	try:
 		if rule_id:
-			return await livekit_api.sip.update_sip_dispatch_rule(
-				api.UpdateSIPDispatchRuleRequest(
-					sip_dispatch_rule_id=rule_id,
-					update=_livekit_dispatch_update(payload),
-				)
-			)
+			return await livekit_api.sip.update_sip_dispatch_rule(rule_id, _livekit_dispatch_update(payload))
 		return await livekit_api.sip.create_sip_dispatch_rule(_livekit_dispatch_request(payload))
 	finally:
 		await livekit_api.aclose()
