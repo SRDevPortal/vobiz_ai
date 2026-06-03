@@ -385,7 +385,7 @@ def _livekit_dispatch_update(payload: dict[str, Any]):
 	request = _livekit_dispatch_request(payload)
 	return api.SIPDispatchRuleUpdate(
 		trunk_ids=ListUpdate(set=request.trunk_ids),
-		rule=request.dispatch_rule,
+		rule=request.rule,
 		name=request.name,
 		attributes=request.attributes,
 	)
