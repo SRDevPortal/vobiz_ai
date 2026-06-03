@@ -288,6 +288,7 @@ def ensure_livekit_cloud_agent(profile) -> str:
 
 def _dispatch_rule_payload(route, profile) -> dict[str, Any]:
 	settings = get_settings()
+	base_url = _get_public_frappe_base_url(settings)
 	agent_name = (
 		route.livekit_agent_name
 		or profile.livekit_agent_name
@@ -295,6 +296,8 @@ def _dispatch_rule_payload(route, profile) -> dict[str, Any]:
 		or "vobiz-gemini-live"
 	)
 	metadata = {
+		"company_key": (settings.get("company_key") or "").strip(),
+		"frappe_base_url": base_url,
 		"voice_agent_profile": profile.name,
 		"profile_key": profile.profile_key,
 		"did_number": route.did_number,

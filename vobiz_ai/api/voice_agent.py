@@ -325,3 +325,8 @@ def get_config(**kwargs):
 			"allowed_actions": _split_actions(_profile_value(profile, settings, "allowed_voice_actions", "") if profile else _value(account_prompt, settings, "allowed_voice_actions", "")),
 		},
 	}
+
+
+@frappe.whitelist(allow_guest=True)
+def get_voice_agent_config(**kwargs):
+	return get_config(**kwargs)
