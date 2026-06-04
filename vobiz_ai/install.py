@@ -7,6 +7,15 @@ from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
 
 
 MODULE = "Vobiz AI"
+DEFAULT_SYSTEM_PROMPT = (
+    "You are KAMAL, SRIAAS virtual care coordinator. Reply in the customer's language, "
+    "keep responses short, do not diagnose or prescribe, and move interested callers "
+    "to doctor callback or consultation."
+)
+DEFAULT_GREETING_INSTRUCTION = (
+    "The call has just connected. Immediately greet the customer warmly in Hindi and "
+    "introduce yourself and SRIAAS."
+)
 
 
 def after_install():
@@ -181,15 +190,8 @@ def ensure_voice_agent_defaults():
 
     defaults = {
         "enable_voice_agent": 1,
-        "system_prompt": (
-            "You are KAMAL, SRIAAS virtual care coordinator. Reply in the customer's language, "
-            "keep responses short, do not diagnose or prescribe, and move interested callers "
-            "to doctor callback or consultation."
-        ),
-        "greeting_instruction": (
-            "The call has just connected. Immediately greet the customer warmly in Hindi and "
-            "introduce yourself and SRIAAS."
-        ),
+        "system_prompt": DEFAULT_SYSTEM_PROMPT,
+        "greeting_instruction": DEFAULT_GREETING_INSTRUCTION,
         "gemini_live_model": "gemini-live-2.5-flash-native-audio",
         "gemini_live_voice": "Puck",
         "vertex_location": "us-central1",
@@ -235,8 +237,8 @@ def ensure_default_voice_agent_profile():
             "profile_key": "kamal-male-infertility",
             "agent_name": getattr(settings, "voice_agent_name", None) or getattr(settings, "agent_name", None) or "KAMAL",
             "description": "Default SRIAAS male infertility and sexual health voice agent.",
-            "system_prompt": getattr(settings, "system_prompt", None) or "",
-            "greeting_instruction": getattr(settings, "greeting_instruction", None) or "",
+            "system_prompt": getattr(settings, "system_prompt", None) or DEFAULT_SYSTEM_PROMPT,
+            "greeting_instruction": getattr(settings, "greeting_instruction", None) or DEFAULT_GREETING_INSTRUCTION,
             "gemini_live_model": getattr(settings, "gemini_live_model", None) or "gemini-live-2.5-flash-native-audio",
             "gemini_live_voice": getattr(settings, "gemini_live_voice", None) or "Puck",
             "vertex_location": getattr(settings, "vertex_location", None) or "us-central1",
