@@ -378,11 +378,12 @@ def _livekit_dispatch_request(payload: dict[str, Any]):
 	)
 
 
-def _livekit_dispatch_update(payload: dict[str, Any]):
+def _livekit_dispatch_update(payload: dict[str, Any], rule_id: str = ""):
 	from livekit import api
 
 	request = _livekit_dispatch_request(payload)
 	return api.SIPDispatchRuleInfo(
+		sip_dispatch_rule_id=rule_id or "",
 		rule=request.rule,
 		trunk_ids=request.trunk_ids,
 		name=request.name,
@@ -436,7 +437,7 @@ async def _create_or_update_dispatch_rule_async(rule_id: str, payload: dict[str,
 	livekit_api = api.LiveKitAPI(livekit_url, api_key, api_secret)
 	try:
 		if rule_id:
-			await livekit_api.sip.update_dispatch_rule(rule_id, _livekit_dispatch_update(payload))
+			await livekit_api.sip.update_dispatch_rule(rule_id, _livekit_dispatch_update(payload, rule_id))
 		else:
 			created = await livekit_api.sip.create_dispatch_rule(_livekit_dispatch_request(payload))
 			rule_id = getattr(created, "sip_dispatch_rule_id", "") or rule_id
@@ -692,7 +693,7 @@ def _sync_voice_agent_route(route: str) -> dict[str, Any]:
 
 	payload = _dispatch_rule_payload(doc, profile)
 	try:
-		rule_id = doc.livekit_dispatch_rule_id or _find_rule_id_by_name(payload["name"])
+		rule_id = _find_rule_id_by_name(payload["name"]) or doc.livekit_dispatch_rule_id
 		synced_rule = _create_or_update_dispatch_rule(rule_id, payload)
 		rule_id = getattr(synced_rule, "sip_dispatch_rule_id", "") or rule_id or _find_rule_id_by_name(payload["name"])
 		_mark_sync(doc, profile, "Synced", rule_id=rule_id)
