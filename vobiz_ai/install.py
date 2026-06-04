@@ -209,7 +209,7 @@ def ensure_voice_agent_defaults():
             "Escalate urgent symptoms, severe pain, bleeding, breathing difficulty, chest pain, "
             "suicidal language, or life-risk messages to emergency care immediately."
         ),
-        "allowed_voice_actions": "create_lead",
+        "allowed_voice_actions": "create_lead,send_whatsapp,book_appointment_request,arrange_doctor_callback,create_issue",
     }
 
     current = frappe.get_single("Vobiz AI Settings")
@@ -247,7 +247,8 @@ def ensure_default_voice_agent_profile():
             "lead_creation_tool_name": getattr(settings, "lead_creation_tool_name", None) or "mcp_create_lead",
             "medical_guardrail_policy": getattr(settings, "medical_guardrail_policy", None) or "",
             "escalation_policy": getattr(settings, "escalation_policy", None) or "",
-            "allowed_voice_actions": getattr(settings, "allowed_voice_actions", None) or "create_lead",
+            "allowed_voice_actions": getattr(settings, "allowed_voice_actions", None)
+            or "create_lead,send_whatsapp,book_appointment_request,arrange_doctor_callback,create_issue",
             "livekit_agent_name": getattr(settings, "livekit_agent_name", None) or "vobiz-gemini-live",
             "livekit_sync_status": "Not Synced",
         }
