@@ -87,27 +87,42 @@ def backfill_phone_search_fields(doctype: str, batch_size: int = 5000):
 	if not source_fields:
 		return
 
-	start = 0
+	target_fields = [
+		field
+		for field in (
+			"vobiz_normalized_phone",
+			"vobiz_mobile_last10",
+			"vobiz_phone_last10",
+			"vobiz_whatsapp_last10",
+		)
+		if frappe.db.has_column(doctype, field)
+	]
+	if not target_fields:
+		return
+
+	last_name = ""
 	while True:
+		filters = {"name": [">", last_name]} if last_name else None
 		rows = frappe.get_all(
 			doctype,
-			fields=["name", *source_fields],
+			filters=filters,
+			fields=["name", *source_fields, *target_fields],
 			order_by="name asc",
-			limit_start=start,
 			limit_page_length=batch_size,
 		)
 		if not rows:
 			break
 		for row in rows:
-			values = _phone_keys(row, source_fields)
-			frappe.db.set_value(
-				doctype,
-				row.name,
-				values,
-				update_modified=False,
-			)
+			values = {field: value for field, value in _phone_keys(row, source_fields).items() if field in target_fields}
+			if _needs_update(row, values):
+				frappe.db.set_value(
+					doctype,
+					row.name,
+					values,
+					update_modified=False,
+				)
+			last_name = row.name
 		frappe.db.commit()
-		start += batch_size
 
 
 def backfill_account_mapping_dids():
@@ -151,6 +166,10 @@ def _last10_from_row(row, fields: tuple[str, ...]) -> str:
 		if last10(value):
 			return last10(value)
 	return ""
+
+
+def _needs_update(row, values: dict[str, str]) -> bool:
+	return any((row.get(field) or "") != (value or "") for field, value in values.items())
 
 
 def ensure_indexes():
