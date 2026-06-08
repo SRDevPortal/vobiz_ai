@@ -88,6 +88,27 @@ def get_settings():
 	return frappe.get_single("Vobiz AI Settings")
 
 
+def get_setting_value(fieldname: str, default=None):
+	try:
+		settings = get_settings()
+		value = settings.get(fieldname)
+	except Exception:
+		return default
+	return default if value in (None, "") else value
+
+
+def get_queue_name(fieldname: str, default: str) -> str:
+	return str(get_setting_value(fieldname, default) or default).strip() or default
+
+
+def get_webhook_batch_size(default: int = 100) -> int:
+	try:
+		value = int(get_setting_value("webhook_batch_size", default) or default)
+	except Exception:
+		value = default
+	return max(1, min(value, 1000))
+
+
 def get_password(doc, fieldname: str) -> str:
 	try:
 		if getattr(doc, "get_password", None):
@@ -201,46 +222,89 @@ def map_status(payload: dict[str, Any]) -> str:
 
 def find_account_mapping(account_id: str, did_number: str, trunk_id: str, domain: str):
 	normalized_did = normalize_phone(did_number)
-	rows = frappe.get_all(
-		"Vobiz Account Mapping",
-		filters={"active": 1},
-		fields=[
-			"name",
-			"account_id",
-			"did_number",
-			"normalized_did",
-			"trunk_id",
-			"domain",
-			"default_owner",
-			"default_team",
-			"default_source",
-			"default_pipeline",
-			"default_platform",
-			"medical_department",
-		],
-		limit_page_length=500,
+	fields = [
+		"name",
+		"account_id",
+		"did_number",
+		"normalized_did",
+		"trunk_id",
+		"domain",
+		"default_owner",
+		"default_team",
+		"default_source",
+		"default_pipeline",
+		"default_platform",
+		"medical_department",
+	]
+	filter_sets = (
+		{"active": 1, "account_id": account_id or "", "normalized_did": normalized_did, "trunk_id": trunk_id or ""},
+		{"active": 1, "account_id": account_id or "", "normalized_did": normalized_did},
+		{"active": 1, "normalized_did": normalized_did},
+		{"active": 1, "account_id": account_id or ""},
 	)
-
-	def match(row, include_account=True, include_did=True, include_trunk=False):
-		if include_account and (row.account_id or "") != (account_id or ""):
-			return False
-		if include_did and (row.normalized_did or normalize_phone(row.did_number)) != normalized_did:
-			return False
-		if include_trunk and (row.trunk_id or "") != (trunk_id or ""):
-			return False
-		if row.domain and domain and row.domain != domain:
-			return False
-		return True
-
-	for include_account, include_did, include_trunk in (
-		(True, True, True),
-		(True, True, False),
-		(False, True, False),
-		(True, False, False),
-	):
+	for filters in filter_sets:
+		if filters.get("normalized_did") == "" and "normalized_did" in filters:
+			continue
+		if filters.get("account_id") == "" and "account_id" in filters and len(filters) == 2:
+			continue
+		rows = frappe.get_all(
+			"Vobiz Account Mapping",
+			filters=filters,
+			fields=fields,
+			order_by="modified desc",
+			limit_page_length=20,
+		)
 		for row in rows:
-			if match(row, include_account, include_did, include_trunk):
-				return row
+			if row.domain and domain and row.domain != domain:
+				continue
+			return row
+	return None
+
+
+def get_phone_search_fields(doctype: str) -> tuple[str, ...]:
+	if doctype == "CRM Lead":
+		return ("mobile_no", "phone", "custom_whatsapp_number", "mobile")
+	if doctype == "Patient":
+		return ("mobile", "phone", "mobile_no", "custom_whatsapp_number")
+	return ("mobile", "mobile_no", "phone", "custom_whatsapp_number")
+
+
+def update_phone_search_fields(doc, method: str | None = None):
+	if not frappe.db.has_column(doc.doctype, "vobiz_phone_last10"):
+		return
+	fields = get_phone_search_fields(doc.doctype)
+	if frappe.db.has_column(doc.doctype, "vobiz_mobile_last10"):
+		doc.vobiz_mobile_last10 = _last10_from_doc(doc, ("mobile_no", "mobile"))
+	if frappe.db.has_column(doc.doctype, "vobiz_phone_last10"):
+		doc.vobiz_phone_last10 = _last10_from_doc(doc, ("phone",))
+	if frappe.db.has_column(doc.doctype, "vobiz_whatsapp_last10"):
+		doc.vobiz_whatsapp_last10 = _last10_from_doc(doc, ("custom_whatsapp_number",))
+	for field in fields:
+		value = doc.get(field) if hasattr(doc, "get") else None
+		normalized = normalize_phone(value)
+		if normalized:
+			if frappe.db.has_column(doc.doctype, "vobiz_normalized_phone"):
+				doc.vobiz_normalized_phone = normalized
+			return
+	if frappe.db.has_column(doc.doctype, "vobiz_normalized_phone"):
+		doc.vobiz_normalized_phone = ""
+
+
+def _last10_from_doc(doc, fields: tuple[str, ...]) -> str:
+	for field in fields:
+		value = doc.get(field) if hasattr(doc, "get") else None
+		if last10(value):
+			return last10(value)
+	return ""
+
+
+def _phone_index_field(source_field: str) -> str | None:
+	if source_field in {"mobile", "mobile_no"}:
+		return "vobiz_mobile_last10"
+	if source_field == "phone":
+		return "vobiz_phone_last10"
+	if source_field == "custom_whatsapp_number":
+		return "vobiz_whatsapp_last10"
 	return None
 
 
@@ -248,6 +312,20 @@ def find_by_phone(doctype: str, fields: tuple[str, ...], number: str) -> str | N
 	key = last10(number)
 	if not key:
 		return None
+	index_conditions = []
+	index_values = []
+	for field in fields:
+		index_field = _phone_index_field(field)
+		if index_field and frappe.db.has_column(doctype, index_field):
+			index_conditions.append(f"`{index_field}` = %s")
+			index_values.append(key)
+	if index_conditions:
+		rows = frappe.db.sql(
+			f"SELECT name FROM `tab{doctype}` WHERE ({' OR '.join(index_conditions)}) ORDER BY modified DESC LIMIT 1",
+			index_values,
+			as_dict=True,
+		)
+		return rows[0].name if rows else None
 	conditions = []
 	values = []
 	for field in fields:

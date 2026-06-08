@@ -4,7 +4,7 @@ import frappe
 from frappe.rate_limiter import rate_limit
 from frappe.utils import now_datetime
 
-from vobiz_ai.api.utils import add_retry_delay, get_settings, has_manager_role, parse_json
+from vobiz_ai.api.utils import add_retry_delay, get_queue_name, get_settings, has_manager_role, parse_json
 
 
 @frappe.whitelist()
@@ -19,17 +19,17 @@ def retry_error(error_log: str):
 		frappe.throw("Max retry count reached")
 
 	if doc.process_type == "AI Scoring" and doc.call_log:
-		frappe.enqueue("vobiz_ai.api.ai.score_call_log", queue="short", call_log=doc.call_log)
+		frappe.enqueue("vobiz_ai.api.ai.score_call_log", queue=get_queue_name("ai_queue_name", "vobiz_ai"), call_log=doc.call_log)
 	elif doc.webhook_event:
 		frappe.db.set_value("Vobiz Webhook Event", doc.webhook_event, "status", "Queued", update_modified=True)
 		frappe.enqueue(
 			"vobiz_ai.api.processing.process_webhook_event",
-			queue="short",
+			queue=get_queue_name("webhook_queue_name", "vobiz_webhook"),
 			timeout=300,
 			webhook_event=doc.webhook_event,
 		)
 	else:
-		frappe.enqueue("vobiz_ai.api.retry.retry_error_job", queue="short", timeout=300, error_log=doc.name)
+		frappe.enqueue("vobiz_ai.api.retry.retry_error_job", queue=get_queue_name("webhook_queue_name", "vobiz_webhook"), timeout=300, error_log=doc.name)
 
 	doc.retry_count = (doc.retry_count or 0) + 1
 	doc.last_retry_time = now_datetime()

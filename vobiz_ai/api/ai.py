@@ -6,7 +6,7 @@ import frappe
 import requests
 from frappe.rate_limiter import rate_limit
 
-from vobiz_ai.api.utils import create_error, get_password, get_settings, hash_text, mark_error_resolved
+from vobiz_ai.api.utils import create_error, get_password, get_queue_name, get_settings, hash_text, mark_error_resolved
 
 
 SYSTEM_PROMPT = """You score clinic call transcripts. Return only JSON with:
@@ -103,5 +103,5 @@ def score_call_log(call_log: str):
 def retry_score(call_log: str):
 	if not frappe.has_permission("Vobiz Call Log", "write", call_log):
 		frappe.throw("Not permitted", frappe.PermissionError)
-	frappe.enqueue("vobiz_ai.api.ai.score_call_log", queue="short", call_log=call_log)
+	frappe.enqueue("vobiz_ai.api.ai.score_call_log", queue=get_queue_name("ai_queue_name", "vobiz_ai"), call_log=call_log)
 	return {"status": "queued"}

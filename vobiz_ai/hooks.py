@@ -38,6 +38,19 @@ scheduled_events = {
     ],
 }
 
+website_route_rules = [
+    {"from_route": "/vobiz-error-log", "to_route": "vobiz_error_log"},
+]
+
+doc_events = {
+    "CRM Lead": {
+        "before_save": "vobiz_ai.api.utils.update_phone_search_fields",
+    },
+    "Patient": {
+        "before_save": "vobiz_ai.api.utils.update_phone_search_fields",
+    },
+}
+
 fixtures = [
     {"dt": "Custom Field", "filters": [["module", "=", "Vobiz AI"]]},
     {"dt": "Property Setter", "filters": [["module", "=", "Vobiz AI"]]},

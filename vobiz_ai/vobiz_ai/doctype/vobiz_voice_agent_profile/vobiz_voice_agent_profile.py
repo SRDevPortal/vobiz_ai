@@ -1,7 +1,7 @@
 import frappe
 from frappe.model.document import Document
 
-from vobiz_ai.api.utils import normalize_phone
+from vobiz_ai.api.utils import get_queue_name, normalize_phone
 
 
 class VobizVoiceAgentProfile(Document):
@@ -27,7 +27,7 @@ class VobizVoiceAgentProfile(Document):
 		frappe.enqueue(
 			"vobiz_ai.api.livekit.sync_voice_agent_profile_from_save",
 			profile=self.name,
-			queue="long",
+			queue=get_queue_name("livekit_queue_name", "vobiz_livekit"),
 			timeout=900,
 			enqueue_after_commit=True,
 			job_name=f"Sync LiveKit voice agent {self.name}",

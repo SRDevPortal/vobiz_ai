@@ -17,9 +17,11 @@ from vobiz_ai.api.utils import (
 	get_direction,
 	get_domain,
 	get_from_number,
+	get_queue_name,
 	get_settings,
 	get_to_number,
 	get_trunk_id,
+	get_webhook_batch_size,
 	hash_text,
 	last10,
 	map_status,
@@ -34,7 +36,7 @@ except ImportError:
 	def recording_proxy_url(call_log: str) -> str:
 		return frappe.db.get_value("Vobiz Call Log", call_log, "recording_url") or ""
 
-WEBHOOK_BATCH_SIZE = 10
+WEBHOOK_BATCH_SIZE = 100
 
 
 def process_payload(payload: dict, webhook_event: str | None = None) -> str:
@@ -90,22 +92,23 @@ def process_webhook_event(webhook_event: str) -> str | None:
 		raise
 
 
-def enqueue_queued_webhook_events(batch_size: int = WEBHOOK_BATCH_SIZE) -> dict:
+def enqueue_queued_webhook_events(batch_size: int | None = None) -> dict:
+	batch_size = max(1, min(int(batch_size or get_webhook_batch_size(WEBHOOK_BATCH_SIZE)), 1000))
 	events = frappe.get_all(
 		"Vobiz Webhook Event",
 		filters={"status": "Queued"},
 		fields=["name"],
 		order_by="received_at asc, creation asc",
-		limit=max(1, min(int(batch_size or WEBHOOK_BATCH_SIZE), WEBHOOK_BATCH_SIZE)),
+		limit=batch_size,
 	)
 	for row in events:
 		frappe.enqueue(
 			"vobiz_ai.api.processing.process_webhook_event",
-			queue="short",
+			queue=get_queue_name("webhook_queue_name", "vobiz_webhook"),
 			timeout=300,
 			webhook_event=row.name,
 		)
-	return {"queued": len(events), "batch_size": WEBHOOK_BATCH_SIZE}
+	return {"queued": len(events), "batch_size": batch_size}
 
 
 def _get_or_create_call(call_key: str):
@@ -500,7 +503,7 @@ def _maybe_queue_ai(call):
 		return
 	call.ai_status = "Queued"
 	call.save(ignore_permissions=True)
-	frappe.enqueue("vobiz_ai.api.ai.score_call_log", queue="short", call_log=call.name)
+	frappe.enqueue("vobiz_ai.api.ai.score_call_log", queue=get_queue_name("ai_queue_name", "vobiz_ai"), call_log=call.name)
 
 
 @frappe.whitelist()

@@ -35,6 +35,7 @@ def setup():
     remove_duplicate_crm_lead_score_fields()
     remove_obsolete_layout_fields()
     ensure_custom_fields_at_end({dt: fields for dt, fields in custom_fields.items() if dt != "CRM Lead"})
+    ensure_production_indexes()
     ensure_workspace()
 
 
@@ -104,6 +105,10 @@ def ensure_custom_fields():
             _field("vobiz_ai_summary", "Latest AI Summary", "Long Text", read_only=1, insert_after="vobiz_transcription_text"),
             _field("vobiz_ai_intent", "Latest AI Intent", "Small Text", read_only=1, insert_after="vobiz_ai_summary"),
             _field("vobiz_ai_concerns", "Latest AI Concerns", "Long Text", read_only=1, insert_after="vobiz_ai_intent"),
+            _field("vobiz_normalized_phone", "Vobiz Normalized Phone", "Data", read_only=1, hidden=1),
+            _field("vobiz_mobile_last10", "Vobiz Mobile Last 10", "Data", read_only=1, hidden=1),
+            _field("vobiz_phone_last10", "Vobiz Phone Last 10", "Data", read_only=1, hidden=1),
+            _field("vobiz_whatsapp_last10", "Vobiz WhatsApp Last 10", "Data", read_only=1, hidden=1),
             _field("vobiz_calling_details_html", "Vobiz Calling Details", "HTML", insert_after="sr_lead_disease"),
             _field("vobiz_ai_calls_html", "Vobiz Call History", "HTML", hidden=1, insert_after="vobiz_ai_concerns"),
         ]
@@ -122,6 +127,10 @@ def ensure_custom_fields():
                 _field("vobiz_lead_language", "Vobiz Language", "Data", read_only=1, in_list_view=1, in_standard_filter=1),
                 _field("vobiz_call_count", "Vobiz Call Count", "Int", read_only=1, in_list_view=1, in_standard_filter=1),
                 _field("vobiz_kamal_involved", "Kamal Involved", "Check", read_only=1, in_standard_filter=1),
+                _field("vobiz_normalized_phone", "Vobiz Normalized Phone", "Data", read_only=1, hidden=1),
+                _field("vobiz_mobile_last10", "Vobiz Mobile Last 10", "Data", read_only=1, hidden=1),
+                _field("vobiz_phone_last10", "Vobiz Phone Last 10", "Data", read_only=1, hidden=1),
+                _field("vobiz_whatsapp_last10", "Vobiz WhatsApp Last 10", "Data", read_only=1, hidden=1),
                 _field("vobiz_call_history_sb", "Vobiz Call History", "Section Break"),
                 _field("vobiz_ai_calls_html", "", "HTML"),
             ],
@@ -210,6 +219,10 @@ def ensure_voice_agent_defaults():
             "suicidal language, or life-risk messages to emergency care immediately."
         ),
         "allowed_voice_actions": "create_lead,send_whatsapp,book_appointment_request,arrange_doctor_callback,create_issue",
+        "webhook_queue_name": "vobiz_webhook",
+        "ai_queue_name": "vobiz_ai",
+        "livekit_queue_name": "vobiz_livekit",
+        "webhook_batch_size": 100,
     }
 
     current = frappe.get_single("Vobiz AI Settings")
@@ -271,6 +284,42 @@ def remove_obsolete_layout_fields():
         if name:
             frappe.delete_doc("Custom Field", name, ignore_permissions=True, force=True)
             frappe.clear_cache(doctype=doctype)
+
+
+def ensure_production_indexes():
+    for doctype, fields, index_name in (
+        ("CRM Lead", ["vobiz_phone_last10"], "idx_vobiz_crm_lead_phone10"),
+        ("CRM Lead", ["vobiz_mobile_last10"], "idx_vobiz_crm_lead_mobile10"),
+        ("CRM Lead", ["vobiz_whatsapp_last10"], "idx_vobiz_crm_lead_whatsapp10"),
+        ("CRM Lead", ["vobiz_normalized_phone"], "idx_vobiz_crm_lead_norm_phone"),
+        ("Patient", ["vobiz_phone_last10"], "idx_vobiz_patient_phone10"),
+        ("Patient", ["vobiz_mobile_last10"], "idx_vobiz_patient_mobile10"),
+        ("Patient", ["vobiz_whatsapp_last10"], "idx_vobiz_patient_whatsapp10"),
+        ("Patient", ["vobiz_normalized_phone"], "idx_vobiz_patient_norm_phone"),
+        ("Vobiz Call Log", ["crm_lead", "creation"], "idx_vobiz_call_lead_creation"),
+        ("Vobiz Call Log", ["crm_lead", "start_time"], "idx_vobiz_call_lead_start"),
+        ("Vobiz Call Log", ["patient", "creation"], "idx_vobiz_call_patient_creation"),
+        ("Vobiz Call Log", ["patient", "start_time"], "idx_vobiz_call_patient_start"),
+        ("Vobiz Webhook Event", ["status", "received_at"], "idx_vobiz_event_status_received"),
+        ("Vobiz Account Mapping", ["active", "account_id", "normalized_did", "trunk_id"], "idx_vobiz_map_route"),
+        ("Vobiz Account Mapping", ["active", "normalized_did"], "idx_vobiz_map_did"),
+        ("Vobiz Account Mapping", ["active", "account_id"], "idx_vobiz_map_account"),
+    ):
+        _add_index_if_possible(doctype, fields, index_name)
+
+
+def _add_index_if_possible(doctype: str, fields: list[str], index_name: str):
+    if not frappe.db.exists("DocType", doctype):
+        return
+    for field in fields:
+        if not frappe.db.has_column(doctype, field):
+            return
+    try:
+        frappe.db.add_index(doctype, fields, index_name)
+    except Exception:
+        message = frappe.get_traceback()
+        if "Duplicate key name" not in message and "already exists" not in message:
+            frappe.log_error(message, f"Vobiz index creation failed: {doctype}.{','.join(fields)}")
 
 
 def ensure_workspace():
