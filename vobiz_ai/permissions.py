@@ -18,7 +18,7 @@ def _lead_access_sql(user: str) -> str:
 			   )
 			   OR name IN (
 					SELECT share_name FROM `tabDocShare`
-					WHERE share_doctype='CRM Lead' AND user={esc_user} AND read=1
+					WHERE share_doctype='CRM Lead' AND user={esc_user} AND `tabDocShare`.`read` = 1
 			   )
 		)
 	"""
@@ -37,7 +37,7 @@ def _patient_access_sql(user: str) -> str:
 			   )
 			   OR name IN (
 					SELECT share_name FROM `tabDocShare`
-					WHERE share_doctype='Patient' AND user={esc_user} AND read=1
+					WHERE share_doctype='Patient' AND user={esc_user} AND `tabDocShare`.`read` = 1
 			   )
 		)
 	"""

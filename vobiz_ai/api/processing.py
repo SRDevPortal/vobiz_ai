@@ -241,7 +241,21 @@ def _link_lead_and_patient(call):
 	else:
 		call.caller_classification = "New Lead"
 		if getattr(get_settings(), "create_lead_on_all_calls", 1):
-			lead = _create_lead(call)
+			try:
+				lead = _create_lead(call)
+			except Exception as exc:
+				call.last_error = f"Lead creation failed: {exc}"[:140]
+				create_error(
+					"Lead Creation",
+					str(exc),
+					payload={
+						"call_key": call.call_key,
+						"customer_number": call.customer_number,
+						"normalized_customer_number": call.normalized_customer_number,
+					},
+					exc=exc,
+					call_log=call.name,
+				)
 
 	if lead:
 		call.crm_lead = lead
