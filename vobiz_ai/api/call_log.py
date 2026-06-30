@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import secrets
 
@@ -7,6 +8,9 @@ import frappe
 
 from vobiz_ai.api.processing import _sync_linked_summaries
 from vobiz_ai.api.utils import as_json, find_by_phone, normalize_phone
+
+
+LEAD_CALL_BADGES_CACHE_TTL = 30
 
 
 def make_outbound_call_key() -> str:
@@ -107,6 +111,30 @@ def sync_linked_summaries(call_log_doc) -> None:
 		frappe.log_error(frappe.get_traceback(), "Vobiz linked summary sync failed")
 
 
+def _lead_call_badges_cache_key(allowed: list[str], seen_at: dict) -> str:
+	payload = {
+		"user": frappe.session.user,
+		"leads": sorted(allowed),
+		"seen_at": {lead: str(seen_at.get(lead) or "") for lead in sorted(allowed)},
+	}
+	digest = hashlib.sha1(json.dumps(payload, sort_keys=True, default=str).encode()).hexdigest()
+	return f"vobiz_ai:lead_call_badges:{digest}"
+
+
+def _cache_get(key: str):
+	try:
+		return frappe.cache().get_value(key)
+	except Exception:
+		return None
+
+
+def _cache_set(key: str, value) -> None:
+	try:
+		frappe.cache().set_value(key, value, expires_in_sec=LEAD_CALL_BADGES_CACHE_TTL)
+	except Exception:
+		pass
+
+
 @frappe.whitelist()
 def get_lead_call_badges(lead_names=None):
 	if isinstance(lead_names, str):
@@ -128,6 +156,19 @@ def get_lead_call_badges(lead_names=None):
 	if not allowed:
 		return {}
 
+	seen_at = {
+		row.name: row.vobiz_calls_seen_at
+		for row in frappe.get_all(
+			"CRM Lead",
+			filters={"name": ["in", allowed]},
+			fields=["name", "vobiz_calls_seen_at"],
+		)
+	}
+	cache_key = _lead_call_badges_cache_key(allowed, seen_at)
+	cached = _cache_get(cache_key)
+	if cached is not None:
+		return cached
+
 	rows = frappe.db.sql(
 		"""
 		SELECT
@@ -143,22 +184,9 @@ def get_lead_call_badges(lead_names=None):
 		{"leads": tuple(allowed)},
 		as_dict=True,
 	)
-	seen_at = {
-		row.name: row.vobiz_calls_seen_at
-		for row in frappe.get_all(
-			"CRM Lead",
-			filters={"name": ["in", allowed]},
-			fields=["name", "vobiz_calls_seen_at"],
-		)
-	}
 	unread_counts = _get_unread_call_counts(allowed, seen_at)
 	latest_logs = {}
-	for row in frappe.get_all(
-		"Vobiz Call Log",
-		filters={"crm_lead": ["in", allowed]},
-		fields=["name", "crm_lead"],
-		order_by="COALESCE(start_time, event_timestamp, modified, creation) desc",
-	):
+	for row in _get_latest_call_logs_by_lead(allowed):
 		if row.crm_lead not in latest_logs:
 			latest_logs[row.crm_lead] = row.name
 
@@ -172,7 +200,32 @@ def get_lead_call_badges(lead_names=None):
 			"latest_query_time": row.latest_query_time,
 			"latest_call_log": latest_logs.get(row.crm_lead),
 		}
+	_cache_set(cache_key, out)
 	return out
+
+
+def _get_latest_call_logs_by_lead(leads: list[str]) -> list:
+	if not leads:
+		return []
+	return frappe.db.sql(
+		"""
+		SELECT name, crm_lead
+		FROM (
+			SELECT
+				name,
+				crm_lead,
+				ROW_NUMBER() OVER (
+					PARTITION BY crm_lead
+					ORDER BY COALESCE(start_time, event_timestamp, modified, creation) DESC
+				) AS row_num
+			FROM `tabVobiz Call Log`
+			WHERE crm_lead IN %(leads)s
+		) ranked
+		WHERE row_num = 1
+		""",
+		{"leads": tuple(leads)},
+		as_dict=True,
+	)
 
 
 def _get_unread_call_counts(leads: list[str], seen_at: dict) -> dict:
