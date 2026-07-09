@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import secrets
+
 import frappe
-from frappe.utils import get_datetime
+from frappe.utils import get_datetime, now_datetime
 
 from vobiz_ai.api.utils import find_account_mapping, find_by_phone, get_password, get_settings, has_manager_role, normalize_phone
 
@@ -180,6 +182,203 @@ def _latest_call_for_phone(phone: str) -> dict:
 	}
 
 
+def _patient_followup_id(patient: str | None) -> str:
+	if not patient:
+		return ""
+	try:
+		if frappe.db.has_column("Patient", "sr_followup_id"):
+			return frappe.db.get_value("Patient", patient, "sr_followup_id") or ""
+	except Exception:
+		return ""
+	return ""
+
+
+def _route_did_from_request() -> str:
+	return _request_value("did_number", "didNumber", "to_number", "toNumber")
+
+
+def _matching_followup_groups(followup_id: str, did_number: str) -> list[frappe._dict]:
+	if not followup_id or not frappe.db.exists("DocType", "Vobiz Followup Routing Group"):
+		return []
+	normalized_did = normalize_phone(did_number)
+	groups = frappe.get_all(
+		"Vobiz Followup Routing Group",
+		filters={"active": 1, "sr_followup_id": followup_id},
+		fields=[
+			"name",
+			"display_label",
+			"sr_followup_id",
+			"did_number",
+			"normalized_did",
+			"strategy",
+			"priority",
+			"reserve_on_config_fetch",
+			"fallback_user",
+			"fallback_phone",
+			"fallback_message",
+		],
+		order_by="priority asc, modified desc",
+		limit_page_length=50,
+	)
+	filtered = []
+	for group in groups:
+		group_did = group.get("normalized_did") or ""
+		if group_did and normalized_did and group_did != normalized_did:
+			continue
+		if group_did and not normalized_did:
+			continue
+		group["_did_match_rank"] = 0 if group_did else 1
+		filtered.append(group)
+	filtered.sort(key=lambda row: (row.get("_did_match_rank", 1), int(row.get("priority") or 100)))
+	return filtered
+
+
+def _available_followup_agents(group_name: str) -> list[frappe._dict]:
+	rows = frappe.get_all(
+		"Vobiz Followup Routing Agent",
+		filters={"parent": group_name, "parenttype": "Vobiz Followup Routing Group", "enabled": 1},
+		fields=[
+			"name",
+			"agent_user",
+			"agent_phone",
+			"normalized_agent_phone",
+			"availability_status",
+			"priority",
+			"weight",
+			"max_active_calls",
+			"active_call_count",
+			"today_call_count",
+			"last_patched_at",
+			"last_transfer_status",
+			"idx",
+		],
+		order_by="idx asc",
+		limit_page_length=100,
+	)
+	available = []
+	for row in rows:
+		if (row.get("availability_status") or "Available") != "Available":
+			continue
+		max_active = int(row.get("max_active_calls") or 0)
+		active = int(row.get("active_call_count") or 0)
+		if max_active and active >= max_active:
+			continue
+		if not (row.get("agent_phone") or row.get("normalized_agent_phone")):
+			continue
+		available.append(row)
+	return available
+
+
+def _agent_sort_key(row: frappe._dict, strategy: str) -> tuple:
+	priority = int(row.get("priority") or 100)
+	active = int(row.get("active_call_count") or 0)
+	today = int(row.get("today_call_count") or 0)
+	last = str(row.get("last_patched_at") or "")
+	idx = int(row.get("idx") or 0)
+	weight = float(row.get("weight") or 1) or 1
+	if strategy == "First Available":
+		return (priority, idx)
+	if strategy == "Least Busy":
+		return (active, today, priority, last, idx)
+	if strategy == "Weighted Balanced":
+		return (today / weight, active, priority, last, idx)
+	return (priority, last, today, idx)
+
+
+def _ordered_followup_agents(group: frappe._dict) -> list[frappe._dict]:
+	agents = _available_followup_agents(group.name)
+	strategy = group.get("strategy") or "Round Robin"
+	agents.sort(key=lambda row: _agent_sort_key(row, strategy))
+	return agents
+
+
+def _reserve_followup_agent(agent_row: frappe._dict) -> str:
+	token = secrets.token_urlsafe(18)
+	now = now_datetime()
+	frappe.db.set_value(
+		"Vobiz Followup Routing Agent",
+		agent_row.name,
+		{
+			"active_call_count": int(agent_row.get("active_call_count") or 0) + 1,
+			"today_call_count": int(agent_row.get("today_call_count") or 0) + 1,
+			"last_patched_at": now,
+			"last_transfer_status": "Reserved",
+			"reservation_token": token,
+		},
+		update_modified=False,
+	)
+	frappe.db.commit()
+	return token
+
+
+def _public_agent(row: frappe._dict) -> dict:
+	return {
+		"agent_row": row.get("name") or "",
+		"agent_user": row.get("agent_user") or "",
+		"agent_phone": row.get("agent_phone") or "",
+		"normalized_agent_phone": row.get("normalized_agent_phone") or normalize_phone(row.get("agent_phone")),
+		"availability_status": row.get("availability_status") or "Available",
+		"active_call_count": int(row.get("active_call_count") or 0),
+		"max_active_calls": int(row.get("max_active_calls") or 0),
+		"priority": int(row.get("priority") or 100),
+	}
+
+
+def _build_patient_routing(context: dict) -> dict:
+	patient = context.get("patient")
+	followup_id = _patient_followup_id(patient)
+	base = {
+		"matched": False,
+		"transfer_allowed": False,
+		"patient": patient or "",
+		"sr_followup_id": followup_id,
+		"status": "no_patient" if not patient else "no_followup_id",
+	}
+	if not patient or not followup_id:
+		return base
+
+	for group in _matching_followup_groups(followup_id, _route_did_from_request()):
+		agents = _ordered_followup_agents(group)
+		if not agents:
+			base.update(
+				{
+					"matched": True,
+					"status": "no_available_agent",
+					"routing_group": group.name,
+					"routing_group_label": group.get("display_label") or group.name,
+					"strategy": group.get("strategy") or "Round Robin",
+					"fallback_user": group.get("fallback_user") or "",
+					"fallback_phone": group.get("fallback_phone") or "",
+					"fallback_message": group.get("fallback_message") or "",
+				}
+			)
+			continue
+
+		selected = agents[0]
+		reservation_token = _reserve_followup_agent(selected) if int(group.get("reserve_on_config_fetch") or 0) else ""
+		return {
+			**base,
+			"matched": True,
+			"transfer_allowed": True,
+			"status": "selected",
+			"routing_group": group.name,
+			"routing_group_label": group.get("display_label") or group.name,
+			"strategy": group.get("strategy") or "Round Robin",
+			"reservation_token": reservation_token,
+			"selected_agent": _public_agent(selected),
+			"agent_row": selected.name,
+			"agent_user": selected.get("agent_user") or "",
+			"agent_phone": selected.get("agent_phone") or "",
+			"normalized_agent_phone": selected.get("normalized_agent_phone") or normalize_phone(selected.get("agent_phone")),
+			"fallback_user": group.get("fallback_user") or "",
+			"fallback_phone": group.get("fallback_phone") or "",
+			"fallback_message": group.get("fallback_message") or "",
+			"available_agents": [_public_agent(row) for row in agents],
+		}
+
+	return base if base.get("status") != "no_available_agent" else base
+
+
 def _build_caller_context() -> dict:
 	phone = _caller_phone_from_request()
 	if not phone:
@@ -213,6 +412,7 @@ def _build_caller_context() -> dict:
 		"normalized_phone": normalize_phone(phone),
 		"classification": classification,
 		"patient": patient or "",
+		"sr_followup_id": _patient_followup_id(patient),
 		"crm_lead": lead or "",
 		"display_name": display_name or "",
 		"previous_call_count": call_count,
@@ -235,6 +435,8 @@ def _caller_context_prompt(context: dict) -> str:
 		lines.append(f"- Known name: {context.get('display_name')}")
 	if context.get("patient"):
 		lines.append(f"- Existing Patient record: {context.get('patient')}")
+	if context.get("sr_followup_id"):
+		lines.append(f"- Patient Follow-up ID: {context.get('sr_followup_id')}")
 	if context.get("crm_lead"):
 		lines.append(f"- Existing CRM Lead record: {context.get('crm_lead')}")
 	latest = context.get("latest_call") or {}
@@ -281,6 +483,7 @@ def get_config(**kwargs):
 		_profile_value(profile, settings, "escalation_policy", "") if profile else _value(account_prompt, settings, "escalation_policy", ""),
 	]
 	caller_context = _build_caller_context()
+	patient_routing = _build_patient_routing(caller_context)
 	full_prompt = "\n\n".join([part for part in [system_prompt, _caller_context_prompt(caller_context), *policies] if part])
 
 	return {
@@ -294,6 +497,7 @@ def get_config(**kwargs):
 		"system_prompt": full_prompt,
 		"base_system_prompt": system_prompt,
 		"caller_context": caller_context,
+		"patient_routing": patient_routing,
 		"greeting_instruction": _profile_value(profile, settings, "greeting_instruction", "") if profile else (_value(account_prompt, settings, "greeting_instruction", "") or ""),
 		"gemini": {
 			"model": _profile_value(profile, settings, "gemini_live_model", "gemini-live-2.5-flash-native-audio") if profile else _value(account_prompt, settings, "gemini_live_model", "gemini-live-2.5-flash-native-audio"),
@@ -330,3 +534,70 @@ def get_config(**kwargs):
 @frappe.whitelist(allow_guest=True)
 def get_voice_agent_config(**kwargs):
 	return get_config(**kwargs)
+
+
+@frappe.whitelist(allow_guest=True)
+def update_patient_routing_status(
+	agent_row: str | None = None,
+	reservation_token: str | None = None,
+	status: str | None = None,
+	call_log: str | None = None,
+	**kwargs,
+):
+	settings = get_settings()
+	_validate_voice_agent_access(settings)
+	status = (status or kwargs.get("transfer_status") or "").strip()[:60]
+	if not status:
+		frappe.throw("Routing status is required")
+
+	filters = {}
+	if reservation_token:
+		filters["reservation_token"] = reservation_token
+	elif agent_row:
+		filters["name"] = agent_row
+	else:
+		frappe.throw("Agent row or reservation token is required")
+
+	row_name = frappe.db.get_value("Vobiz Followup Routing Agent", filters, "name")
+	if not row_name:
+		return {"ok": False, "status": "not_found"}
+
+	row = frappe.get_doc("Vobiz Followup Routing Agent", row_name)
+	release_statuses = {"completed", "failed", "busy", "no answer", "no_answer", "cancelled", "canceled", "released"}
+	values = {"last_transfer_status": status}
+	if status.lower() in release_statuses:
+		values["active_call_count"] = max(0, int(row.active_call_count or 0) - 1)
+		values["reservation_token"] = ""
+	frappe.db.set_value("Vobiz Followup Routing Agent", row.name, values, update_modified=False)
+	if call_log and frappe.db.exists("Vobiz Call Log", call_log):
+		_update_call_log_routing_status(call_log, row, status)
+	frappe.db.commit()
+	return {"ok": True, "agent_row": row.name, "status": status}
+
+
+def _update_call_log_routing_status(call_log: str, agent_row, status: str) -> None:
+	meta = frappe.get_meta("Vobiz Call Log")
+	group = frappe.get_doc("Vobiz Followup Routing Group", agent_row.parent) if agent_row.parent else None
+	values = {
+		"sr_followup_id": group.sr_followup_id if group else "",
+		"followup_routing_group": group.name if group else "",
+		"followup_routing_agent": agent_row.name,
+		"followup_routing_user": agent_row.agent_user,
+		"followup_routing_phone": agent_row.agent_phone,
+		"followup_transfer_status": status,
+	}
+	values = {key: value for key, value in values.items() if meta.get_field(key)}
+	if values:
+		frappe.db.set_value("Vobiz Call Log", call_log, values, update_modified=False)
+
+
+def reset_followup_routing_daily_counts():
+	if not frappe.db.exists("DocType", "Vobiz Followup Routing Agent"):
+		return
+	frappe.db.sql(
+		"""
+		UPDATE `tabVobiz Followup Routing Agent`
+		SET today_call_count = 0
+		WHERE IFNULL(today_call_count, 0) != 0
+		"""
+	)

@@ -234,6 +234,8 @@ def _link_lead_and_patient(call):
 	if patient:
 		call.patient = patient
 		call.caller_classification = "Patient"
+		if frappe.get_meta("Vobiz Call Log").get_field("sr_followup_id") and frappe.db.has_column("Patient", "sr_followup_id"):
+			call.sr_followup_id = frappe.db.get_value("Patient", patient, "sr_followup_id") or call.get("sr_followup_id")
 		if not lead:
 			lead = find_by_phone("CRM Lead", ("mobile_no", "phone"), frappe.db.get_value("Patient", patient, "mobile"))
 	elif lead:

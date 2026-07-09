@@ -36,6 +36,11 @@ scheduled_events = {
     "all": [
         "vobiz_ai.api.processing.enqueue_queued_webhook_events",
     ],
+    "cron": {
+        "5 0 * * *": [
+            "vobiz_ai.api.voice_agent.reset_followup_routing_daily_counts",
+        ],
+    },
 }
 
 website_route_rules = [
