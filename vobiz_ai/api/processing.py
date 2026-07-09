@@ -54,6 +54,7 @@ def process_payload(payload: dict, webhook_event: str | None = None) -> str:
 	_create_or_update_patient_issue(call)
 	_sync_linked_summaries(call, is_new_call=is_new_call)
 	_maybe_queue_ai(call)
+	_maybe_queue_patient_encounter(call)
 	return call.name
 
 
@@ -236,6 +237,10 @@ def _link_lead_and_patient(call):
 		call.caller_classification = "Patient"
 		if frappe.get_meta("Vobiz Call Log").get_field("sr_followup_id") and frappe.db.has_column("Patient", "sr_followup_id"):
 			call.sr_followup_id = frappe.db.get_value("Patient", patient, "sr_followup_id") or call.get("sr_followup_id")
+		if frappe.get_meta("Vobiz Call Log").get_field("patient_sr_followup_id") and frappe.db.has_column("Patient", "sr_followup_id"):
+			call.patient_sr_followup_id = frappe.db.get_value("Patient", patient, "sr_followup_id") or call.get("patient_sr_followup_id")
+		if frappe.get_meta("Vobiz Call Log").get_field("patient_medical_department") and frappe.db.has_column("Patient", "sr_medical_department"):
+			call.patient_medical_department = frappe.db.get_value("Patient", patient, "sr_medical_department") or call.get("patient_medical_department")
 		if not lead:
 			lead = find_by_phone("CRM Lead", ("mobile_no", "phone"), frappe.db.get_value("Patient", patient, "mobile"))
 	elif lead:
@@ -520,6 +525,15 @@ def _maybe_queue_ai(call):
 	call.ai_status = "Queued"
 	call.save(ignore_permissions=True)
 	frappe.enqueue("vobiz_ai.api.ai.score_call_log", queue=get_queue_name("ai_queue_name", "vobiz_ai"), call_log=call.name)
+
+
+def _maybe_queue_patient_encounter(call):
+	try:
+		from vobiz_ai.api.patient_encounter import maybe_queue_patient_encounter
+
+		maybe_queue_patient_encounter(call.name)
+	except Exception as exc:
+		create_error("Patient Encounter Creation", str(exc), payload={"call_log": call.name}, exc=exc, call_log=call.name, crm_lead=call.crm_lead, patient=call.patient)
 
 
 @frappe.whitelist()
