@@ -269,7 +269,7 @@
   {"fieldname": "hangup_cause", "fieldtype": "Data", "label": "Hangup Cause"},
   {"fieldname": "error_message", "fieldtype": "Small Text", "label": "Error Message"},
   {"collapsible": 1, "fieldname": "disposition_section", "fieldtype": "Section Break", "label": "Post-call Disposition"},
-  {"fieldname": "disposition", "fieldtype": "Select", "in_list_view": 1, "in_standard_filter": 1, "label": "Disposition", "options": "\nConnected\nNo Answer\nBusy\nFailed\nWrong Number\nNot Interested\nInterested\nFollow Up Required\nConverted\nCall Back Later\nLanguage Issue\nDuplicate Lead\nInvalid Number\nDo Not Call"},
+  {"fieldname": "disposition", "fieldtype": "Data", "in_list_view": 1, "in_standard_filter": 1, "label": "Disposition"},
   {"fieldname": "disposition_notes", "fieldtype": "Small Text", "label": "Disposition Notes"},
   {"fieldname": "follow_up_datetime", "fieldtype": "Datetime", "label": "Next Follow-up Datetime"},
   {"fieldname": "disposition_by", "fieldtype": "Link", "label": "Disposition By", "options": "User", "read_only": 1},
