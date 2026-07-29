@@ -32,7 +32,7 @@ has_permission = {
     "Vobiz Error Log": "vobiz_ai.permissions.has_error_log_permission",
 }
 
-scheduled_events = {
+scheduler_events = {
     "all": [
         "vobiz_ai.api.processing.enqueue_queued_webhook_events",
     ],
