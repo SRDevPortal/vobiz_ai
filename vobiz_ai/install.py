@@ -7,14 +7,22 @@ from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
 
 
 MODULE = "Vobiz AI"
-DEFAULT_SYSTEM_PROMPT = (
+DEFAULT_VOICE_AGENT_SYSTEM_PROMPT = (
     "You are KAMAL, SRIAAS virtual care coordinator. Reply in the customer's language, "
     "keep responses short, do not diagnose or prescribe, and move interested callers "
     "to doctor callback or consultation."
 )
-DEFAULT_GREETING_INSTRUCTION = (
+DEFAULT_VOICE_AGENT_GREETING = (
     "The call has just connected. Immediately greet the customer warmly in Hindi and "
     "introduce yourself and SRIAAS."
+)
+DEFAULT_MEDICAL_GUARDRAIL_POLICY = (
+    "The assistant is not a doctor. It must not diagnose, prescribe, guarantee cures, "
+    "or create medical urgency for sales. It should route medical decisions to the doctor team."
+)
+DEFAULT_ESCALATION_POLICY = (
+    "Escalate urgent symptoms, severe pain, bleeding, breathing difficulty, chest pain, "
+    "suicidal language, or life-risk messages to emergency care immediately."
 )
 
 
@@ -35,7 +43,6 @@ def setup():
     remove_duplicate_crm_lead_score_fields()
     remove_obsolete_layout_fields()
     ensure_custom_fields_at_end({dt: fields for dt, fields in custom_fields.items() if dt != "CRM Lead"})
-    ensure_production_indexes()
     ensure_workspace()
 
 
@@ -105,10 +112,6 @@ def ensure_custom_fields():
             _field("vobiz_ai_summary", "Latest AI Summary", "Long Text", read_only=1, insert_after="vobiz_transcription_text"),
             _field("vobiz_ai_intent", "Latest AI Intent", "Small Text", read_only=1, insert_after="vobiz_ai_summary"),
             _field("vobiz_ai_concerns", "Latest AI Concerns", "Long Text", read_only=1, insert_after="vobiz_ai_intent"),
-            _field("vobiz_normalized_phone", "Vobiz Normalized Phone", "Data", read_only=1, hidden=1),
-            _field("vobiz_mobile_last10", "Vobiz Mobile Last 10", "Data", read_only=1, hidden=1),
-            _field("vobiz_phone_last10", "Vobiz Phone Last 10", "Data", read_only=1, hidden=1),
-            _field("vobiz_whatsapp_last10", "Vobiz WhatsApp Last 10", "Data", read_only=1, hidden=1),
             _field("vobiz_calling_details_html", "Vobiz Calling Details", "HTML", insert_after="sr_lead_disease"),
             _field("vobiz_ai_calls_html", "Vobiz Call History", "HTML", hidden=1, insert_after="vobiz_ai_concerns"),
         ]
@@ -127,10 +130,6 @@ def ensure_custom_fields():
                 _field("vobiz_lead_language", "Vobiz Language", "Data", read_only=1, in_list_view=1, in_standard_filter=1),
                 _field("vobiz_call_count", "Vobiz Call Count", "Int", read_only=1, in_list_view=1, in_standard_filter=1),
                 _field("vobiz_kamal_involved", "Kamal Involved", "Check", read_only=1, in_standard_filter=1),
-                _field("vobiz_normalized_phone", "Vobiz Normalized Phone", "Data", read_only=1, hidden=1),
-                _field("vobiz_mobile_last10", "Vobiz Mobile Last 10", "Data", read_only=1, hidden=1),
-                _field("vobiz_phone_last10", "Vobiz Phone Last 10", "Data", read_only=1, hidden=1),
-                _field("vobiz_whatsapp_last10", "Vobiz WhatsApp Last 10", "Data", read_only=1, hidden=1),
                 _field("vobiz_call_history_sb", "Vobiz Call History", "Section Break"),
                 _field("vobiz_ai_calls_html", "", "HTML"),
             ],
@@ -199,30 +198,21 @@ def ensure_voice_agent_defaults():
 
     defaults = {
         "enable_voice_agent": 1,
-        "system_prompt": DEFAULT_SYSTEM_PROMPT,
-        "greeting_instruction": DEFAULT_GREETING_INSTRUCTION,
+        "voice_agent_name": "KAMAL",
+        "system_prompt": DEFAULT_VOICE_AGENT_SYSTEM_PROMPT,
+        "greeting_instruction": DEFAULT_VOICE_AGENT_GREETING,
         "gemini_live_model": "gemini-live-2.5-flash-native-audio",
         "gemini_live_voice": "Puck",
         "vertex_location": "us-central1",
-        "company_key": "",
+        "livekit_cli_project": "gemini-live",
         "frappe_base_url": "",
         "livekit_agent_name": "vobiz-gemini-live",
         "sip_provider": "Vobiz",
         "room_name_pattern": "gemini_live_{caller}_{random}",
         "lead_creation_tool_name": "mcp_create_lead",
-        "medical_guardrail_policy": (
-            "The assistant is not a doctor. It must not diagnose, prescribe, guarantee cures, "
-            "or create medical urgency for sales. It should route medical decisions to the doctor team."
-        ),
-        "escalation_policy": (
-            "Escalate urgent symptoms, severe pain, bleeding, breathing difficulty, chest pain, "
-            "suicidal language, or life-risk messages to emergency care immediately."
-        ),
-        "allowed_voice_actions": "create_lead,send_whatsapp,book_appointment_request,arrange_doctor_callback,create_issue",
-        "webhook_queue_name": "vobiz_webhook",
-        "ai_queue_name": "vobiz_ai",
-        "livekit_queue_name": "vobiz_livekit",
-        "webhook_batch_size": 100,
+        "medical_guardrail_policy": DEFAULT_MEDICAL_GUARDRAIL_POLICY,
+        "escalation_policy": DEFAULT_ESCALATION_POLICY,
+        "allowed_voice_actions": "create_lead",
     }
 
     current = frappe.get_single("Vobiz AI Settings")
@@ -248,21 +238,21 @@ def ensure_default_voice_agent_profile():
             "doctype": "Vobiz Voice Agent Profile",
             "enabled": 1,
             "profile_key": "kamal-male-infertility",
-            "agent_name": getattr(settings, "voice_agent_name", None) or getattr(settings, "agent_name", None) or "KAMAL",
+            "agent_name": settings.get("voice_agent_name") or "KAMAL",
             "description": "Default SRIAAS male infertility and sexual health voice agent.",
-            "system_prompt": getattr(settings, "system_prompt", None) or DEFAULT_SYSTEM_PROMPT,
-            "greeting_instruction": getattr(settings, "greeting_instruction", None) or DEFAULT_GREETING_INSTRUCTION,
-            "gemini_live_model": getattr(settings, "gemini_live_model", None) or "gemini-live-2.5-flash-native-audio",
-            "gemini_live_voice": getattr(settings, "gemini_live_voice", None) or "Puck",
-            "vertex_location": getattr(settings, "vertex_location", None) or "us-central1",
-            "google_cloud_project": getattr(settings, "google_cloud_project", None) or "",
-            "mcp_server_url": getattr(settings, "mcp_server_url", None) or "",
-            "lead_creation_tool_name": getattr(settings, "lead_creation_tool_name", None) or "mcp_create_lead",
-            "medical_guardrail_policy": getattr(settings, "medical_guardrail_policy", None) or "",
-            "escalation_policy": getattr(settings, "escalation_policy", None) or "",
-            "allowed_voice_actions": getattr(settings, "allowed_voice_actions", None)
-            or "create_lead,send_whatsapp,book_appointment_request,arrange_doctor_callback,create_issue",
-            "livekit_agent_name": getattr(settings, "livekit_agent_name", None) or "vobiz-gemini-live",
+            "system_prompt": settings.get("system_prompt") or DEFAULT_VOICE_AGENT_SYSTEM_PROMPT,
+            "greeting_instruction": settings.get("greeting_instruction") or DEFAULT_VOICE_AGENT_GREETING,
+            "gemini_live_model": settings.get("gemini_live_model") or "gemini-live-2.5-flash-native-audio",
+            "gemini_live_voice": settings.get("gemini_live_voice") or "Puck",
+            "vertex_location": settings.get("vertex_location") or "us-central1",
+            "google_cloud_project": settings.get("google_cloud_project") or "",
+            "mcp_server_url": settings.get("mcp_server_url") or "",
+            "lead_creation_tool_name": settings.get("lead_creation_tool_name") or "mcp_create_lead",
+            "medical_guardrail_policy": settings.get("medical_guardrail_policy")
+            or DEFAULT_MEDICAL_GUARDRAIL_POLICY,
+            "escalation_policy": settings.get("escalation_policy") or DEFAULT_ESCALATION_POLICY,
+            "allowed_voice_actions": settings.get("allowed_voice_actions") or "create_lead",
+            "livekit_agent_name": settings.livekit_agent_name or "vobiz-gemini-live",
             "livekit_sync_status": "Not Synced",
         }
     ).insert(ignore_permissions=True)
@@ -286,42 +276,6 @@ def remove_obsolete_layout_fields():
             frappe.clear_cache(doctype=doctype)
 
 
-def ensure_production_indexes():
-    for doctype, fields, index_name in (
-        ("CRM Lead", ["vobiz_phone_last10"], "idx_vobiz_crm_lead_phone10"),
-        ("CRM Lead", ["vobiz_mobile_last10"], "idx_vobiz_crm_lead_mobile10"),
-        ("CRM Lead", ["vobiz_whatsapp_last10"], "idx_vobiz_crm_lead_whatsapp10"),
-        ("CRM Lead", ["vobiz_normalized_phone"], "idx_vobiz_crm_lead_norm_phone"),
-        ("Patient", ["vobiz_phone_last10"], "idx_vobiz_patient_phone10"),
-        ("Patient", ["vobiz_mobile_last10"], "idx_vobiz_patient_mobile10"),
-        ("Patient", ["vobiz_whatsapp_last10"], "idx_vobiz_patient_whatsapp10"),
-        ("Patient", ["vobiz_normalized_phone"], "idx_vobiz_patient_norm_phone"),
-        ("Vobiz Call Log", ["crm_lead", "creation"], "idx_vobiz_call_lead_creation"),
-        ("Vobiz Call Log", ["crm_lead", "start_time"], "idx_vobiz_call_lead_start"),
-        ("Vobiz Call Log", ["patient", "creation"], "idx_vobiz_call_patient_creation"),
-        ("Vobiz Call Log", ["patient", "start_time"], "idx_vobiz_call_patient_start"),
-        ("Vobiz Webhook Event", ["status", "received_at"], "idx_vobiz_event_status_received"),
-        ("Vobiz Account Mapping", ["active", "account_id", "normalized_did", "trunk_id"], "idx_vobiz_map_route"),
-        ("Vobiz Account Mapping", ["active", "normalized_did"], "idx_vobiz_map_did"),
-        ("Vobiz Account Mapping", ["active", "account_id"], "idx_vobiz_map_account"),
-    ):
-        _add_index_if_possible(doctype, fields, index_name)
-
-
-def _add_index_if_possible(doctype: str, fields: list[str], index_name: str):
-    if not frappe.db.exists("DocType", doctype):
-        return
-    for field in fields:
-        if not frappe.db.has_column(doctype, field):
-            return
-    try:
-        frappe.db.add_index(doctype, fields, index_name)
-    except Exception:
-        message = frappe.get_traceback()
-        if "Duplicate key name" not in message and "already exists" not in message:
-            frappe.log_error(message, f"Vobiz index creation failed: {doctype}.{','.join(fields)}")
-
-
 def ensure_workspace():
     shortcuts = [
         {"type": "DocType", "label": "Call Logs", "link_to": "Vobiz Call Log", "doc_view": "List", "icon": "phone"},
@@ -341,16 +295,6 @@ def ensure_workspace():
         {"type": "Link", "label": "Webhook Events", "link_to": "Vobiz Webhook Event", "link_type": "DocType"},
         {"type": "Link", "label": "Settings", "link_to": "Vobiz AI Settings", "link_type": "DocType"},
     ]
-    required_doctypes = sorted({row["link_to"] for row in shortcuts + links})
-    missing_doctypes = [doctype for doctype in required_doctypes if not frappe.db.exists("DocType", doctype)]
-    if missing_doctypes:
-        frappe.log_error(
-            "Skipped Vobiz AI workspace creation because DocTypes are not ready yet: "
-            + ", ".join(missing_doctypes),
-            "Vobiz AI workspace setup skipped",
-        )
-        return
-
     content = [
         {"id": "vobiz_header", "type": "header", "data": {"text": "Vobiz AI", "level": 4, "col": 12}},
         {"id": "vobiz_call_logs", "type": "shortcut", "data": {"shortcut_name": "Call Logs", "col": 3}},
@@ -370,7 +314,7 @@ def ensure_workspace():
         "label": "Vobiz AI",
         "public": 1,
         "for_user": "",
-        "icon": "call",
+        "icon": "icon-call",
         "content": json.dumps(content),
     }
 
