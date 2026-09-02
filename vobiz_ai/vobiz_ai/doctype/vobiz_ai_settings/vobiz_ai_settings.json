@@ -33,9 +33,6 @@
   "default_lead_source",
   "default_lead_status",
   "default_lead_owner",
-  "default_pipeline",
-  "default_platform",
-  "default_medical_department",
   "default_lead_name_format"
  ],
  "fields": [
@@ -64,12 +61,9 @@
   {"default": "3", "fieldname": "max_retry_count", "fieldtype": "Int", "label": "Max Retry Count"},
   {"default": "10", "fieldname": "retry_delay_minutes", "fieldtype": "Int", "label": "Retry Delay Minutes"},
   {"fieldname": "defaults_section", "fieldtype": "Section Break", "label": "Fallback Lead Defaults"},
-  {"fieldname": "default_lead_source", "fieldtype": "Link", "label": "Default Lead Source", "options": "SR Lead Source"},
+  {"fieldname": "default_lead_source", "fieldtype": "Link", "label": "Default Lead Source", "options": "CRM Lead Source"},
   {"fieldname": "default_lead_status", "fieldtype": "Link", "label": "Default Lead Status", "options": "CRM Lead Status"},
   {"fieldname": "default_lead_owner", "fieldtype": "Link", "label": "Default Lead Owner", "options": "User"},
-  {"fieldname": "default_pipeline", "fieldtype": "Link", "label": "Default Pipeline", "options": "SR Lead Pipeline"},
-  {"fieldname": "default_platform", "fieldtype": "Link", "label": "Default Platform", "options": "SR Lead Platform"},
-  {"fieldname": "default_medical_department", "fieldtype": "Link", "label": "Default Medical Department", "options": "Medical Department"},
   {"default": "Vobiz Call {customer_number}", "fieldname": "default_lead_name_format", "fieldtype": "Data", "label": "Default Lead Name Format"}
  ],
  "issingle": 1,

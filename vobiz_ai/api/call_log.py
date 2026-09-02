@@ -82,21 +82,16 @@ def append_callback(call_log: str, event: str, payload: dict) -> None:
 def sync_reference_links(call_log_doc) -> None:
 	if call_log_doc.reference_doctype == "CRM Lead":
 		call_log_doc.crm_lead = call_log_doc.reference_name
-	elif call_log_doc.reference_doctype == "Patient":
-		call_log_doc.patient = call_log_doc.reference_name
 
-	if call_log_doc.crm_lead or call_log_doc.patient:
+	if call_log_doc.crm_lead:
 		return
 
 	customer_number = call_log_doc.customer_number or call_log_doc.normalized_customer_number
 	if not customer_number:
 		return
 
-	call_log_doc.patient = find_by_phone("Patient", ("mobile", "phone"), customer_number)
 	call_log_doc.crm_lead = find_by_phone("CRM Lead", ("mobile_no", "phone"), customer_number)
-	if call_log_doc.patient:
-		call_log_doc.caller_classification = "Patient"
-	elif call_log_doc.crm_lead:
+	if call_log_doc.crm_lead:
 		call_log_doc.caller_classification = "Old Lead"
 
 

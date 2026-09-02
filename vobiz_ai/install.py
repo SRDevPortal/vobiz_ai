@@ -87,7 +87,7 @@ def ensure_custom_fields():
             _field("vobiz_last_call_event", "Last Vobiz Event", "Data", read_only=1, insert_after="vobiz_last_call_status"),
             _field("vobiz_call_direction", "Last Vobiz Direction", "Data", read_only=1, insert_after="vobiz_last_call_event"),
             _field("vobiz_call_duration", "Last Vobiz Duration", "Duration", read_only=1, insert_after="vobiz_call_direction"),
-            _field("vobiz_caller_classification", "Vobiz Caller Type", "Select", options="\nNew Lead\nOld Lead\nPatient", read_only=1, insert_after="vobiz_call_duration"),
+            _field("vobiz_caller_classification", "Vobiz Caller Type", "Select", options="\nNew Lead\nOld Lead", read_only=1, insert_after="vobiz_call_duration"),
             _field("vobiz_summary_cb", "", "Column Break", insert_after="vobiz_caller_classification"),
             _field("vobiz_kamal_involved", "Kamal Involved", "Check", read_only=1, insert_after="vobiz_summary_cb"),
             _field("vobiz_recording_url", "Latest Recording URL", "Small Text", read_only=1, insert_after="vobiz_kamal_involved"),
@@ -98,32 +98,12 @@ def ensure_custom_fields():
             _field("vobiz_calling_details_html", "Vobiz Calling Details", "HTML", insert_after="sr_lead_disease"),
             _field("vobiz_ai_calls_html", "Vobiz Call History", "HTML", hidden=1, insert_after="vobiz_ai_concerns"),
         ]
-    if frappe.db.exists("DocType", "Patient"):
-        fields["Patient"] = _chain_at_end(
-            "Patient",
-            [
-                _field("vobiz_ai_tab", "Vobiz Calls", "Tab Break"),
-                _field("vobiz_ai_summary_sb", "Vobiz Summary", "Section Break"),
-                _field("vobiz_call_indicator", "Vobiz", "Data", read_only=1, in_list_view=1, in_standard_filter=1),
-                _field("vobiz_latest_call_time", "Latest Vobiz Call Time", "Datetime", read_only=1, in_list_view=1, in_standard_filter=1),
-                _field("vobiz_last_call_status", "Last Vobiz Call Status", "Data", read_only=1, in_standard_filter=1),
-                _field("vobiz_caller_classification", "Vobiz Caller Type", "Select", options="\nNew Lead\nOld Lead\nPatient", read_only=1, in_standard_filter=1),
-                _field("vobiz_lead_temperature", "Vobiz Lead Temperature", "Select", options="\nHot\nWarm\nCold", read_only=1, in_list_view=1, in_standard_filter=1),
-                _field("vobiz_lead_score", "Vobiz Lead Score", "Int", read_only=1, in_list_view=1, in_standard_filter=1),
-                _field("vobiz_lead_language", "Vobiz Language", "Data", read_only=1, in_list_view=1, in_standard_filter=1),
-                _field("vobiz_call_count", "Vobiz Call Count", "Int", read_only=1, in_list_view=1, in_standard_filter=1),
-                _field("vobiz_kamal_involved", "Kamal Involved", "Check", read_only=1, in_standard_filter=1),
-                _field("vobiz_call_history_sb", "Vobiz Call History", "Section Break"),
-                _field("vobiz_ai_calls_html", "", "HTML"),
-            ],
-        )
     if frappe.db.exists("DocType", "Issue"):
         fields["Issue"] = _chain_at_end(
             "Issue",
             [
                 _field("vobiz_issue_section", "Vobiz Call", "Section Break"),
                 _field("vobiz_call_log", "Vobiz Call Log", "Link", options="Vobiz Call Log", read_only=1, in_list_view=1, in_standard_filter=1),
-                _field("vobiz_patient", "Vobiz Patient", "Link", options="Patient", read_only=1, in_list_view=1, in_standard_filter=1),
                 _field("vobiz_crm_lead", "Vobiz CRM Lead", "Link", options="CRM Lead", read_only=1, in_standard_filter=1),
                 _field("vobiz_call_time", "Vobiz Call Time", "Datetime", read_only=1, in_standard_filter=1),
                 _field("vobiz_call_direction", "Vobiz Direction", "Data", read_only=1, in_standard_filter=1),
@@ -183,9 +163,9 @@ def ensure_voice_agent_defaults():
         "enable_voice_agent": 1,
         "voice_agent_name": "KAMAL",
         "system_prompt": (
-            "You are KAMAL, SRIAAS virtual care coordinator. Reply in the customer's language, "
-            "keep responses short, do not diagnose or prescribe, and move interested callers "
-            "to doctor callback or consultation."
+            "You are KAMAL, SRIAAS virtual sales and support coordinator. Reply in the customer's language, "
+            "keep responses short, protect personal information, and move interested callers "
+            "to the appropriate sales or support representative."
         ),
         "greeting_instruction": (
             "The call has just connected. Immediately greet the customer warmly in Hindi and "
@@ -201,12 +181,12 @@ def ensure_voice_agent_defaults():
         "room_name_pattern": "gemini_live_{caller}_{random}",
         "lead_creation_tool_name": "mcp_create_lead",
         "medical_guardrail_policy": (
-            "The assistant is not a doctor. It must not diagnose, prescribe, guarantee cures, "
-            "or create medical urgency for sales. It should route medical decisions to the doctor team."
+            "The assistant must not make unsupported claims, expose private information, or pressure callers. "
+            "It should route decisions outside its authority to the appropriate human team."
         ),
         "escalation_policy": (
-            "Escalate urgent symptoms, severe pain, bleeding, breathing difficulty, chest pain, "
-            "suicidal language, or life-risk messages to emergency care immediately."
+            "Escalate threats, safety concerns, legal complaints, account-security issues, "
+            "or requests outside the assistant's authority to a human immediately."
         ),
         "allowed_voice_actions": "create_lead",
     }
@@ -214,6 +194,8 @@ def ensure_voice_agent_defaults():
     current = frappe.get_single("Vobiz AI Settings")
     changed = False
     for fieldname, value in defaults.items():
+        if not current.meta.has_field(fieldname):
+            continue
         if current.get(fieldname) in (None, ""):
             current.set(fieldname, value)
             changed = True
@@ -225,7 +207,7 @@ def ensure_voice_agent_defaults():
 def ensure_default_voice_agent_profile():
     if not frappe.db.exists("DocType", "Vobiz Voice Agent Profile"):
         return
-    if frappe.db.exists("Vobiz Voice Agent Profile", "kamal-male-infertility"):
+    if frappe.db.exists("Vobiz Voice Agent Profile", "kamal-default"):
         return
 
     settings = frappe.get_single("Vobiz AI Settings")
@@ -233,21 +215,39 @@ def ensure_default_voice_agent_profile():
         {
             "doctype": "Vobiz Voice Agent Profile",
             "enabled": 1,
-            "profile_key": "kamal-male-infertility",
-            "agent_name": settings.voice_agent_name or "KAMAL",
-            "description": "Default SRIAAS male infertility and sexual health voice agent.",
-            "system_prompt": settings.system_prompt or "",
-            "greeting_instruction": settings.greeting_instruction or "",
-            "gemini_live_model": settings.gemini_live_model or "gemini-live-2.5-flash-native-audio",
-            "gemini_live_voice": settings.gemini_live_voice or "Puck",
-            "vertex_location": settings.vertex_location or "us-central1",
-            "google_cloud_project": settings.google_cloud_project or "",
-            "mcp_server_url": settings.mcp_server_url or "",
-            "lead_creation_tool_name": settings.lead_creation_tool_name or "mcp_create_lead",
-            "medical_guardrail_policy": settings.medical_guardrail_policy or "",
-            "escalation_policy": settings.escalation_policy or "",
-            "allowed_voice_actions": settings.allowed_voice_actions or "create_lead",
-            "livekit_agent_name": settings.livekit_agent_name or "vobiz-gemini-live",
+            "profile_key": "kamal-default",
+            "agent_name": settings.get("voice_agent_name") or "KAMAL",
+            "description": "Default SRIAAS sales and support voice agent.",
+            "system_prompt": settings.get("system_prompt")
+            or (
+                "You are KAMAL, SRIAAS virtual sales and support coordinator. Reply in the customer's language, "
+                "keep responses short, protect personal information, and move interested callers "
+                "to the appropriate sales or support representative."
+            ),
+            "greeting_instruction": settings.get("greeting_instruction")
+            or (
+                "The call has just connected. Immediately greet the customer warmly in Hindi and "
+                "introduce yourself and SRIAAS."
+            ),
+            "gemini_live_model": settings.get("gemini_live_model")
+            or "gemini-live-2.5-flash-native-audio",
+            "gemini_live_voice": settings.get("gemini_live_voice") or "Puck",
+            "vertex_location": settings.get("vertex_location") or "us-central1",
+            "google_cloud_project": settings.get("google_cloud_project") or "",
+            "mcp_server_url": settings.get("mcp_server_url") or "",
+            "lead_creation_tool_name": settings.get("lead_creation_tool_name") or "mcp_create_lead",
+            "medical_guardrail_policy": settings.get("medical_guardrail_policy")
+            or (
+                "The assistant must not make unsupported claims, expose private information, or pressure callers. "
+                "It should route decisions outside its authority to the appropriate human team."
+            ),
+            "escalation_policy": settings.get("escalation_policy")
+            or (
+                "Escalate threats, safety concerns, legal complaints, account-security issues, "
+                "or requests outside the assistant's authority to a human immediately."
+            ),
+            "allowed_voice_actions": settings.get("allowed_voice_actions") or "create_lead",
+            "livekit_agent_name": settings.get("livekit_agent_name") or "vobiz-gemini-live",
             "livekit_sync_status": "Not Synced",
         }
     ).insert(ignore_permissions=True)
@@ -264,7 +264,7 @@ def remove_duplicate_crm_lead_score_fields():
 
 
 def remove_obsolete_layout_fields():
-    for doctype in ("CRM Lead", "Patient"):
+    for doctype in ("CRM Lead",):
         name = frappe.db.get_value("Custom Field", {"dt": doctype, "fieldname": "vobiz_summary_cb"})
         if name:
             frappe.delete_doc("Custom Field", name, ignore_permissions=True, force=True)

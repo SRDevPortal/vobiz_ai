@@ -5,36 +5,6 @@ frappe.ui.form.on('CRM Lead', {
 	},
 });
 
-frappe.ui.form.on('Patient', {
-	refresh(frm) {
-		show_vobiz_patient_indicator(frm);
-		render_vobiz_calls(frm, 'Patient');
-	},
-});
-
-function show_vobiz_patient_indicator(frm) {
-	if (frm.is_new()) return;
-
-	const count = cint(frm.doc.vobiz_call_count || 0);
-	const indicator = frm.doc.vobiz_call_indicator;
-	if (!count && !indicator) return;
-
-	const temp = frm.doc.vobiz_lead_temperature || 'Unscored';
-	const score = frm.doc.vobiz_lead_score || 0;
-	const label = `New Vobiz Hit (${count || 1}) | ${temp} | Score ${score}`;
-	frm.dashboard.add_indicator(label, temp === 'Hot' ? 'red' : temp === 'Warm' ? 'orange' : 'blue');
-
-	frm.add_custom_button(__('Open Vobiz Calls'), () => {
-		frappe.route_options = { patient: frm.doc.name };
-		frappe.set_route('List', 'Vobiz Call Log');
-	});
-
-	frm.add_custom_button(__('Open Vobiz Issue'), () => {
-		frappe.route_options = { vobiz_patient: frm.doc.name };
-		frappe.set_route('List', 'Issue');
-	});
-}
-
 function mark_vobiz_calls_read(frm) {
 	if (frm.is_new()) return;
 	frappe.call({

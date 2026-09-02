@@ -41,10 +41,10 @@ def process_payload(payload: dict, webhook_event: str | None = None) -> str:
 	is_new_call = call.is_new()
 	_update_call_from_payload(call, payload)
 	_resolve_mapping(call, payload)
-	_link_lead_and_patient(call)
+	_link_lead(call)
 	call.raw_payload = as_json(payload)
 	call.save(ignore_permissions=True)
-	_create_or_update_patient_issue(call)
+	_create_or_update_lead_issue(call)
 	_sync_linked_summaries(call, is_new_call=is_new_call)
 	_maybe_queue_ai(call)
 	return call.name
@@ -171,13 +171,6 @@ def _infer_direction(call, payload: dict, from_number: str, to_number: str) -> s
 	if to_is_did and not from_is_did:
 		return "Incoming"
 
-	from_patient = bool(find_by_phone("Patient", ("mobile", "phone"), from_number))
-	to_patient = bool(find_by_phone("Patient", ("mobile", "phone"), to_number))
-	if from_patient and not to_patient:
-		return "Incoming"
-	if to_patient and not from_patient:
-		return "Outgoing"
-
 	from_lead = bool(find_by_phone("CRM Lead", ("mobile_no", "phone"), from_number))
 	to_lead = bool(find_by_phone("CRM Lead", ("mobile_no", "phone"), to_number))
 	if from_lead and not to_lead:
@@ -194,7 +187,6 @@ def _resolve_mapping(call, payload: dict):
 		return
 	call.account_mapping = mapping.name
 	call.linked_owner = mapping.default_owner or call.linked_owner
-	call.medical_department = mapping.medical_department or call.medical_department
 
 
 def _lead_defaults(call):
@@ -204,9 +196,6 @@ def _lead_defaults(call):
 		"source": getattr(mapping, "default_source", None) or getattr(settings, "default_lead_source", None),
 		"status": getattr(settings, "default_lead_status", None) or _first_doc("CRM Lead Status", {"type": "Open"}) or _first_doc("CRM Lead Status"),
 		"lead_owner": getattr(mapping, "default_owner", None) or getattr(settings, "default_lead_owner", None),
-		"pipeline": getattr(mapping, "default_pipeline", None) or getattr(settings, "default_pipeline", None) or _first_doc("SR Lead Pipeline"),
-		"platform": getattr(mapping, "default_platform", None) or getattr(settings, "default_platform", None) or _first_doc("SR Lead Platform"),
-		"medical_department": getattr(mapping, "medical_department", None) or getattr(settings, "default_medical_department", None),
 		"name_format": getattr(settings, "default_lead_name_format", None) or "Vobiz Call {customer_number}",
 	}
 
@@ -218,17 +207,11 @@ def _first_doc(doctype: str, filters: dict | None = None) -> str | None:
 	return rows[0] if rows else None
 
 
-def _link_lead_and_patient(call):
+def _link_lead(call):
 	customer = call.customer_number
-	patient = find_by_phone("Patient", ("mobile", "phone"), customer)
 	lead = find_by_phone("CRM Lead", ("mobile_no", "phone"), customer)
 
-	if patient:
-		call.patient = patient
-		call.caller_classification = "Patient"
-		if not lead:
-			lead = find_by_phone("CRM Lead", ("mobile_no", "phone"), frappe.db.get_value("Patient", patient, "mobile"))
-	elif lead:
+	if lead:
 		call.caller_classification = "Old Lead"
 	else:
 		call.caller_classification = "New Lead"
@@ -238,9 +221,6 @@ def _link_lead_and_patient(call):
 	if lead:
 		call.crm_lead = lead
 		call.linked_owner = frappe.db.get_value("CRM Lead", lead, "lead_owner") or call.linked_owner
-	if patient:
-		owner = frappe.db.get_value("Patient", patient, "owner")
-		call.linked_owner = call.linked_owner or owner
 
 
 def _create_lead(call) -> str:
@@ -268,12 +248,6 @@ def _create_lead(call) -> str:
 		lead.status = defaults["status"]
 	if "lead_owner" in fields and defaults["lead_owner"]:
 		lead.lead_owner = defaults["lead_owner"]
-	if "sr_lead_pipeline" in fields and defaults["pipeline"]:
-		lead.sr_lead_pipeline = defaults["pipeline"]
-	if "sr_lead_platform" in fields and defaults["platform"]:
-		lead.sr_lead_platform = defaults["platform"]
-	if "sr_lead_department" in fields and defaults["medical_department"]:
-		lead.sr_lead_department = defaults["medical_department"]
 	lead.insert(ignore_permissions=True)
 	return lead.name
 
@@ -300,38 +274,31 @@ def _sync_linked_summaries(call, is_new_call: bool = False):
 		"lead_score": call.lead_score,
 		"lead_lan": _detect_transcript_language(call.transcription_text),
 	}
-	patient_values = {
-		"vobiz_call_indicator": _get_patient_hit_indicator(call.patient),
-		"vobiz_lead_temperature": call.lead_temperature,
-		"vobiz_lead_score": call.lead_score,
-		"vobiz_lead_language": _detect_transcript_language(call.transcription_text),
-		"vobiz_call_count": _get_patient_call_count(call.patient),
-	}
-	for doctype, name in (("CRM Lead", call.crm_lead), ("Patient", call.patient)):
-		if not name:
-			continue
-		meta = frappe.get_meta(doctype)
-		update = {k: v for k, v in values.items() if meta.get_field(k) and v not in (None, "")}
-		if doctype == "CRM Lead":
-			update.update({k: v for k, v in lead_values.items() if meta.get_field(k) and v not in (None, "")})
-			update.update(_lead_call_counts(name, meta))
-			if is_new_call and meta.get_field("vobiz_call_alert_count"):
-				seen = frappe.db.get_value("CRM Lead", name, "vobiz_calls_seen_at") if meta.get_field("vobiz_calls_seen_at") else None
-				if seen:
-					update["vobiz_call_alert_count"] = frappe.db.count(
-						"Vobiz Call Log",
-						{"crm_lead": name, "creation": [">", seen]},
-					)
-				else:
-					recent_cutoff = frappe.utils.add_to_date(frappe.utils.now_datetime(), minutes=-90)
-					update["vobiz_call_alert_count"] = frappe.db.count(
-						"Vobiz Call Log",
-						{"crm_lead": name, "creation": [">", recent_cutoff]},
-					)
+	if not call.crm_lead:
+		return
+	meta = frappe.get_meta("CRM Lead")
+	update = {k: v for k, v in values.items() if meta.get_field(k) and v not in (None, "")}
+	update.update({k: v for k, v in lead_values.items() if meta.get_field(k) and v not in (None, "")})
+	update.update(_lead_call_counts(call.crm_lead, meta))
+	if is_new_call and meta.get_field("vobiz_call_alert_count"):
+		seen = (
+			frappe.db.get_value("CRM Lead", call.crm_lead, "vobiz_calls_seen_at")
+			if meta.get_field("vobiz_calls_seen_at")
+			else None
+		)
+		if seen:
+			update["vobiz_call_alert_count"] = frappe.db.count(
+				"Vobiz Call Log",
+				{"crm_lead": call.crm_lead, "creation": [">", seen]},
+			)
 		else:
-			update.update({k: v for k, v in patient_values.items() if meta.get_field(k) and v not in (None, "")})
-		if update:
-			frappe.db.set_value(doctype, name, update, update_modified=False)
+			recent_cutoff = frappe.utils.add_to_date(frappe.utils.now_datetime(), minutes=-90)
+			update["vobiz_call_alert_count"] = frappe.db.count(
+				"Vobiz Call Log",
+				{"crm_lead": call.crm_lead, "creation": [">", recent_cutoff]},
+			)
+	if update:
+		frappe.db.set_value("CRM Lead", call.crm_lead, update, update_modified=False)
 
 
 def _lead_call_counts(lead: str, meta) -> dict:
@@ -368,19 +335,8 @@ def _detect_transcript_language(text: str | None) -> str:
 	return "English"
 
 
-def _get_patient_call_count(patient: str | None) -> int | None:
-	if not patient:
-		return None
-	return frappe.db.count("Vobiz Call Log", {"patient": patient})
-
-
-def _get_patient_hit_indicator(patient: str | None) -> str:
-	count = _get_patient_call_count(patient) or 0
-	return f"New Vobiz Hit ({count})" if count else ""
-
-
-def _create_or_update_patient_issue(call):
-	if not call.patient:
+def _create_or_update_lead_issue(call):
+	if not call.crm_lead:
 		return
 	if not frappe.db.exists("DocType", "Issue"):
 		return
@@ -403,7 +359,14 @@ def _create_or_update_patient_issue(call):
 			call.issue = issue.name
 			call.save(ignore_permissions=True)
 	except Exception as exc:
-		create_error("Patient Issue Creation", str(exc), payload={"call_log": call.name}, exc=exc, call_log=call.name, crm_lead=call.crm_lead, patient=call.patient)
+		create_error(
+			"Lead Issue Creation",
+			str(exc),
+			payload={"call_log": call.name},
+			exc=exc,
+			call_log=call.name,
+			crm_lead=call.crm_lead,
+		)
 
 
 def _find_issue_for_call(call_log: str) -> str | None:
@@ -416,7 +379,6 @@ def _apply_issue_values(issue, call):
 	meta = frappe.get_meta("Issue")
 	values = {
 		"vobiz_call_log": call.name,
-		"vobiz_patient": call.patient,
 		"vobiz_crm_lead": call.crm_lead,
 		"vobiz_call_time": call.start_time or call.event_timestamp,
 		"vobiz_call_direction": call.direction,
@@ -430,22 +392,25 @@ def _apply_issue_values(issue, call):
 	if meta.get_field("description"):
 		issue.description = _issue_description(call)
 	if meta.get_field("raised_by") and not issue.get("raised_by"):
-		issue.raised_by = _patient_email(call.patient)
+		issue.raised_by = _lead_email(call.crm_lead)
 
 
 def _issue_subject(call) -> str:
-	patient_name = frappe.db.get_value("Patient", call.patient, "patient_name") or call.patient
+	lead_name = (
+		frappe.db.get_value("CRM Lead", call.crm_lead, "lead_name")
+		or frappe.db.get_value("CRM Lead", call.crm_lead, "first_name")
+		or call.crm_lead
+	)
 	when = call.start_time or call.event_timestamp
 	when_text = when.strftime("%d-%m-%Y %H:%M") if hasattr(when, "strftime") else ""
-	return f"Vobiz call from patient {patient_name} {when_text}".strip()[:140]
+	return f"Vobiz call from lead {lead_name} {when_text}".strip()[:140]
 
 
 def _issue_description(call) -> str:
 	rows = [
-		"<h4>Vobiz Patient Call</h4>",
+		"<h4>Vobiz Lead Call</h4>",
 		"<ul>",
 		f"<li><b>Call Log:</b> {escape(call.name)}</li>",
-		f"<li><b>Patient:</b> {escape(call.patient or '')}</li>",
 		f"<li><b>CRM Lead:</b> {escape(call.crm_lead or '')}</li>",
 		f"<li><b>Direction:</b> {escape(call.direction or '')}</li>",
 		f"<li><b>Status:</b> {escape(call.status or '')}</li>",
@@ -473,12 +438,12 @@ def _issue_description(call) -> str:
 	return "\n".join(rows)
 
 
-def _patient_email(patient: str | None) -> str:
-	if not patient:
+def _lead_email(lead: str | None) -> str:
+	if not lead:
 		return ""
 	for fieldname in ("email", "email_id"):
-		if frappe.db.has_column("Patient", fieldname):
-			value = frappe.db.get_value("Patient", patient, fieldname)
+		if frappe.db.has_column("CRM Lead", fieldname):
+			value = frappe.db.get_value("CRM Lead", lead, fieldname)
 			if value:
 				return value
 	return ""
@@ -500,9 +465,9 @@ def _maybe_queue_ai(call):
 
 @frappe.whitelist()
 def get_related_calls(doctype: str, name: str):
-	if doctype not in ("CRM Lead", "Patient"):
+	if doctype != "CRM Lead":
 		frappe.throw("Unsupported doctype")
-	filters = {"crm_lead": name} if doctype == "CRM Lead" else {"patient": name}
+	filters = {"crm_lead": name}
 	return frappe.get_all(
 		"Vobiz Call Log",
 		filters=filters,

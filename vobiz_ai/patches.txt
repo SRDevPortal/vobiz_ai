@@ -1,3 +1,4 @@
 vobiz_ai.patches.v0_0_1.extend_call_log_for_click_to_call
 vobiz_ai.patches.v0_0_1.optimize_vobiz_call_indexes
 vobiz_ai.patches.v0_0_1.format_error_log_payload
+vobiz_ai.patches.v0_0_1.cleanup_healthcare_links

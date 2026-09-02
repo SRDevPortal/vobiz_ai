@@ -156,7 +156,7 @@ def _latest_call_for_phone(phone: str) -> dict:
 	last10 = normalized[-10:]
 	rows = frappe.db.sql(
 		"""
-		SELECT name, start_time, event_timestamp, status, direction, crm_lead, patient
+		SELECT name, start_time, event_timestamp, status, direction, crm_lead
 		FROM `tabVobiz Call Log`
 		WHERE normalized_customer_number = %(normalized)s
 		   OR customer_number LIKE %(last10_like)s
@@ -175,7 +175,6 @@ def _latest_call_for_phone(phone: str) -> dict:
 		"status": row.status or "",
 		"direction": row.direction or "",
 		"crm_lead": row.crm_lead or "",
-		"patient": row.patient or "",
 		"when": str(get_datetime(when)) if when else "",
 	}
 
@@ -185,23 +184,18 @@ def _build_caller_context() -> dict:
 	if not phone:
 		return {}
 
-	patient = find_by_phone("Patient", ("mobile", "mobile_no", "phone", "custom_whatsapp_number"), phone)
 	lead = find_by_phone("CRM Lead", ("mobile_no", "phone", "custom_whatsapp_number"), phone)
 	call_count = _call_count_for_phone(phone)
 	latest_call = _latest_call_for_phone(phone)
 
 	classification = "New Caller"
-	if patient:
-		classification = "Existing Patient"
-	elif lead:
+	if lead:
 		classification = "Existing Lead"
 	elif call_count:
 		classification = "Repeat Caller"
 
 	display_name = ""
-	if patient:
-		display_name = frappe.db.get_value("Patient", patient, "patient_name") or patient
-	elif lead:
+	if lead:
 		display_name = (
 			frappe.db.get_value("CRM Lead", lead, "lead_name")
 			or frappe.db.get_value("CRM Lead", lead, "first_name")
@@ -212,7 +206,6 @@ def _build_caller_context() -> dict:
 		"phone": phone,
 		"normalized_phone": normalize_phone(phone),
 		"classification": classification,
-		"patient": patient or "",
 		"crm_lead": lead or "",
 		"display_name": display_name or "",
 		"previous_call_count": call_count,
@@ -233,8 +226,6 @@ def _caller_context_prompt(context: dict) -> str:
 	]
 	if context.get("display_name"):
 		lines.append(f"- Known name: {context.get('display_name')}")
-	if context.get("patient"):
-		lines.append(f"- Existing Patient record: {context.get('patient')}")
 	if context.get("crm_lead"):
 		lines.append(f"- Existing CRM Lead record: {context.get('crm_lead')}")
 	latest = context.get("latest_call") or {}
@@ -243,7 +234,7 @@ def _caller_context_prompt(context: dict) -> str:
 	lines.extend(
 		[
 			"- Use this context naturally. Do not say internal record IDs unless the caller asks.",
-			"- If this is an existing lead/patient/repeat caller, acknowledge continuity briefly and avoid asking for details already known.",
+			"- If this is an existing lead or repeat caller, acknowledge continuity briefly and avoid asking for details already known.",
 		]
 	)
 	return "\n".join(lines)
@@ -320,7 +311,7 @@ def get_config(**kwargs):
 			"lead_creation_tool_name": profile.lead_creation_tool_name if profile and profile.lead_creation_tool_name else (settings.get("lead_creation_tool_name") or "mcp_create_lead"),
 		},
 		"guardrails": {
-			"medical": _profile_value(profile, settings, "medical_guardrail_policy", "") if profile else (_value(account_prompt, settings, "medical_guardrail_policy", "") or ""),
+			"safety": _profile_value(profile, settings, "medical_guardrail_policy", "") if profile else (_value(account_prompt, settings, "medical_guardrail_policy", "") or ""),
 			"escalation": _profile_value(profile, settings, "escalation_policy", "") if profile else (_value(account_prompt, settings, "escalation_policy", "") or ""),
 			"allowed_actions": _split_actions(_profile_value(profile, settings, "allowed_voice_actions", "") if profile else _value(account_prompt, settings, "allowed_voice_actions", "")),
 		},

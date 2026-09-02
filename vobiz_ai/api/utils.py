@@ -214,9 +214,6 @@ def find_account_mapping(account_id: str, did_number: str, trunk_id: str, domain
 			"default_owner",
 			"default_team",
 			"default_source",
-			"default_pipeline",
-			"default_platform",
-			"medical_department",
 		],
 		limit_page_length=500,
 	)
@@ -253,7 +250,10 @@ def find_by_phone(doctype: str, fields: tuple[str, ...], number: str) -> str | N
 	for field in fields:
 		if not frappe.db.has_column(doctype, field):
 			continue
-		conditions.append(f"REPLACE(REPLACE(REPLACE(REPLACE(`{field}`, '+', ''), ' ', ''), '-', ''), '(', '') LIKE %s")
+		normalized_field = f"`{field}`"
+		for character in ("+", " ", "-", "(", ")", ".", "/"):
+			normalized_field = f"REPLACE({normalized_field}, '{character}', '')"
+		conditions.append(f"{normalized_field} LIKE %s")
 		values.append(f"%{key}")
 	if not conditions:
 		return None
