@@ -5,21 +5,19 @@ app_description = "Vobiz AI telephony integration for ERPNext and Frappe CRM"
 app_email = "webdevelopersriaas@gmail.com"
 app_license = "MIT"
 
-required_apps = ["frappe", "crm", "healthcare"]
+required_apps = ["frappe", "crm"]
 
 after_install = "vobiz_ai.install.after_install"
 after_migrate = "vobiz_ai.install.after_migrate"
 
 doctype_js = {
     "CRM Lead": "public/js/vobiz_tabs.js",
-    "Patient": "public/js/vobiz_tabs.js",
     "Vobiz Call Log": "public/js/vobiz_call_log.js",
     "Vobiz Error Log": "public/js/vobiz_error_log.js",
 }
 
 doctype_list_js = {
     "CRM Lead": "public/js/crm_lead_vobiz_list.js",
-    "Patient": "public/js/patient_vobiz_list.js",
 }
 
 permission_query_conditions = {
@@ -36,24 +34,6 @@ scheduler_events = {
     "all": [
         "vobiz_ai.api.processing.enqueue_queued_webhook_events",
     ],
-    "cron": {
-        "5 0 * * *": [
-            "vobiz_ai.api.voice_agent.reset_followup_routing_daily_counts",
-        ],
-    },
-}
-
-website_route_rules = [
-    {"from_route": "/vobiz-error-log", "to_route": "vobiz_error_log"},
-]
-
-doc_events = {
-    "CRM Lead": {
-        "before_save": "vobiz_ai.api.utils.update_phone_search_fields",
-    },
-    "Patient": {
-        "before_save": "vobiz_ai.api.utils.update_phone_search_fields",
-    },
 }
 
 fixtures = [

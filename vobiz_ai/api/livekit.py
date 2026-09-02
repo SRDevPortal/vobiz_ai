@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import json
 import os
 import re
@@ -54,31 +53,9 @@ def _livekit_env(settings) -> dict[str, str]:
 	return env
 
 
-def _livekit_credentials(settings) -> tuple[str, str, str]:
-	livekit_url = (settings.livekit_url or "").strip()
-	api_key = get_password(settings, "livekit_api_key")
-	api_secret = get_password(settings, "livekit_api_secret")
-	if not livekit_url or not api_key or not api_secret:
-		frappe.throw("LiveKit URL, API Key, and API Secret are required in Vobiz AI Settings.")
-	return livekit_url, api_key, api_secret
-
-
-def _run_async(coro):
-	try:
-		asyncio.get_running_loop()
-	except RuntimeError:
-		return asyncio.run(coro)
-
-	loop = asyncio.new_event_loop()
-	try:
-		return loop.run_until_complete(coro)
-	finally:
-		loop.close()
-
-
 def _run_lk(args: list[str], payload: dict[str, Any] | None = None, timeout: int = 45) -> str:
 	settings = get_settings()
-	project = _get_livekit_cloud_project(settings)
+	project = (settings.get("livekit_cli_project") or "").strip()
 	if project and "--project" not in args:
 		args = ["--project", project, *args]
 	process = subprocess.run(
@@ -98,7 +75,7 @@ def _run_lk(args: list[str], payload: dict[str, Any] | None = None, timeout: int
 
 def _run_lk_with_optional_env(args: list[str], extra_env: dict[str, str], timeout: int = 45) -> str:
 	settings = get_settings()
-	project = _get_livekit_cloud_project(settings)
+	project = (settings.get("livekit_cli_project") or "").strip()
 	if project and "--project" not in args:
 		args = ["--project", project, *args]
 	env = _livekit_env(settings)
@@ -115,38 +92,6 @@ def _run_lk_with_optional_env(args: list[str], extra_env: dict[str, str], timeou
 		message = (process.stderr or process.stdout or "LiveKit CLI command failed").strip()
 		frappe.throw(message)
 	return process.stdout or ""
-
-
-def _get_livekit_cloud_project(settings) -> str:
-	return (settings.get("livekit_cli_project") or "").strip()
-
-
-def _require_cloud_agent_sync_settings(settings) -> None:
-	missing = []
-	if not _get_livekit_cloud_project(settings):
-		missing.append("LiveKit Cloud Project ID / Slug")
-	if not (settings.get("livekit_url") or "").strip():
-		missing.append("LiveKit URL")
-	if not get_password(settings, "livekit_api_key"):
-		missing.append("LiveKit API Key")
-	if not get_password(settings, "livekit_api_secret"):
-		missing.append("LiveKit API Secret")
-	if not (settings.get("livekit_cloud_agent_id") or "").strip():
-		missing.append("LiveKit Cloud Agent ID")
-	if missing:
-		frappe.throw("Please set these fields in Vobiz AI Settings first: " + ", ".join(missing))
-
-
-def _require_livekit_route_sync_settings(settings) -> None:
-	missing = []
-	if not (settings.get("livekit_url") or "").strip():
-		missing.append("LiveKit URL")
-	if not get_password(settings, "livekit_api_key"):
-		missing.append("LiveKit API Key")
-	if not get_password(settings, "livekit_api_secret"):
-		missing.append("LiveKit API Secret")
-	if missing:
-		frappe.throw("Please set these fields in Vobiz AI Settings first: " + ", ".join(missing))
 
 
 def _json_from_lk_output(output: str) -> dict[str, Any]:
@@ -218,7 +163,11 @@ def _ensure_agent_config(settings, profile, agent_id: str = "") -> Path:
 
 
 def _profile_secret_args(settings, profile) -> list[str]:
-	base_url = _get_public_frappe_base_url(settings)
+	base_url = (settings.get("frappe_base_url") or "").strip().rstrip("/")
+	if not base_url:
+		frappe.throw("Public Frappe Base URL is required in Vobiz AI Settings.")
+	if not base_url.startswith("https://"):
+		frappe.throw("Public Frappe Base URL must start with https://")
 
 	dispatch_name = (profile.livekit_agent_name or "").strip()
 	if not dispatch_name:
@@ -288,7 +237,6 @@ def ensure_livekit_cloud_agent(profile) -> str:
 
 def _dispatch_rule_payload(route, profile) -> dict[str, Any]:
 	settings = get_settings()
-	base_url = _get_public_frappe_base_url(settings)
 	agent_name = (
 		route.livekit_agent_name
 		or profile.livekit_agent_name
@@ -296,8 +244,6 @@ def _dispatch_rule_payload(route, profile) -> dict[str, Any]:
 		or "vobiz-gemini-live"
 	)
 	metadata = {
-		"company_key": (settings.get("company_key") or "").strip(),
-		"frappe_base_url": base_url,
 		"voice_agent_profile": profile.name,
 		"profile_key": profile.profile_key,
 		"did_number": route.did_number,
@@ -333,122 +279,12 @@ def _dispatch_rule_payload(route, profile) -> dict[str, Any]:
 
 
 def _find_rule_id_by_name(name: str) -> str:
-	return _run_async(_find_rule_id_by_name_async(name))
-
-
-async def _find_rule_id_by_name_async(name: str) -> str:
-	from livekit import api
-
-	settings = get_settings()
-	livekit_url, api_key, api_secret = _livekit_credentials(settings)
-	livekit_api = api.LiveKitAPI(livekit_url, api_key, api_secret)
-	try:
-		response = await livekit_api.sip.list_dispatch_rule(api.ListSIPDispatchRuleRequest())
-		for item in response.items:
-			if item.name == name:
-				return item.sip_dispatch_rule_id or ""
-	finally:
-		await livekit_api.aclose()
+	output = _run_lk(["sip", "dispatch", "list", "--json"])
+	data = _json_from_lk_output(output)
+	for item in data.get("items") or []:
+		if item.get("name") == name:
+			return item.get("sipDispatchRuleId") or ""
 	return ""
-
-
-def _livekit_dispatch_request(payload: dict[str, Any]):
-	from livekit import api
-
-	rule_data = payload.get("rule", {}).get("dispatchRuleIndividual") or {}
-	agents = []
-	for agent in payload.get("roomConfig", {}).get("agents") or []:
-		agents.append(
-			api.RoomAgentDispatch(
-				agent_name=agent.get("agentName") or "",
-				metadata=agent.get("metadata") or "",
-			)
-	)
-	room_config = api.RoomConfiguration(agents=agents) if agents else None
-	return api.CreateSIPDispatchRuleRequest(
-		rule=api.SIPDispatchRule(
-			dispatch_rule_individual=api.SIPDispatchRuleIndividual(
-				room_prefix=rule_data.get("roomPrefix") or "vobiz-",
-			)
-		),
-		trunk_ids=payload.get("trunkIds") or [],
-		name=payload.get("name") or "",
-		attributes=payload.get("attributes") or {},
-		room_config=room_config,
-	)
-
-
-def _livekit_dispatch_update(payload: dict[str, Any], rule_id: str = ""):
-	from livekit import api
-
-	request = _livekit_dispatch_request(payload)
-	return api.SIPDispatchRuleInfo(
-		sip_dispatch_rule_id=rule_id or "",
-		rule=request.rule,
-		trunk_ids=request.trunk_ids,
-		name=request.name,
-		attributes=request.attributes,
-		room_config=request.room_config,
-	)
-
-
-def _create_or_update_dispatch_rule(rule_id: str, payload: dict[str, Any]):
-	return _run_async(_create_or_update_dispatch_rule_async(rule_id, payload))
-
-
-def _dispatch_rule_matches_payload(item, payload: dict[str, Any]) -> bool:
-	expected_trunks = set(payload.get("trunkIds") or [])
-	if expected_trunks and set(item.trunk_ids or []) != expected_trunks:
-		return False
-
-	agents = payload.get("roomConfig", {}).get("agents") or []
-	if agents:
-		livekit_agents = list(item.room_config.agents or [])
-		for expected in agents:
-			if not any(
-				agent.agent_name == (expected.get("agentName") or "")
-				and (agent.metadata or "") == (expected.get("metadata") or "")
-				for agent in livekit_agents
-			):
-				return False
-
-	return True
-
-
-async def _verified_dispatch_rule_async(livekit_api, payload: dict[str, Any], rule_id: str = ""):
-	from livekit import api
-
-	response = await livekit_api.sip.list_dispatch_rule(api.ListSIPDispatchRuleRequest())
-	name = payload.get("name") or ""
-	for item in response.items:
-		if rule_id and item.sip_dispatch_rule_id == rule_id and _dispatch_rule_matches_payload(item, payload):
-			return item
-	for item in response.items:
-		if item.name == name and _dispatch_rule_matches_payload(item, payload):
-			return item
-	return None
-
-
-async def _create_or_update_dispatch_rule_async(rule_id: str, payload: dict[str, Any]):
-	from livekit import api
-
-	settings = get_settings()
-	livekit_url, api_key, api_secret = _livekit_credentials(settings)
-	livekit_api = api.LiveKitAPI(livekit_url, api_key, api_secret)
-	try:
-		if rule_id:
-			await livekit_api.sip.update_dispatch_rule(rule_id, _livekit_dispatch_update(payload, rule_id))
-		else:
-			created = await livekit_api.sip.create_dispatch_rule(_livekit_dispatch_request(payload))
-			rule_id = getattr(created, "sip_dispatch_rule_id", "") or rule_id
-		verified = await _verified_dispatch_rule_async(livekit_api, payload, rule_id)
-		if not verified:
-			frappe.throw(
-				"LiveKit accepted the dispatch sync request, but the expected dispatch rule was not found after verification."
-			)
-		return verified
-	finally:
-		await livekit_api.aclose()
 
 
 def _mark_sync(route, profile, status: str, rule_id: str = "", error: str = "") -> None:
@@ -487,93 +323,26 @@ def _mark_profile_sync(profile, status: str, error: str = "") -> None:
 def sync_frappe_base_url_secret() -> dict[str, Any]:
 	_require_manager()
 	settings = get_settings()
-	_require_cloud_agent_sync_settings(settings)
-	base_url = _get_public_frappe_base_url(settings)
-	agent_id = (settings.get("livekit_cloud_agent_id") or "").strip()
-
-	config_secret = get_password(settings, "voice_agent_config_secret")
-	secrets = [f"FRAPPE_BASE_URL={base_url}"]
-	if config_secret:
-		secrets.extend(
-			[
-				f"VOICE_AGENT_CONFIG_SECRET={config_secret}",
-				f"X_VOICE_AGENT_SECRET={config_secret}",
-			]
-		)
-
-	args = [
-		"agent",
-		"update-secrets",
-		"--id",
-		agent_id,
-	]
-	for secret in secrets:
-		args.extend(["--secrets", secret])
-	args.append("--ignore-empty-secrets")
-
-	_run_lk_with_optional_env(
-		args,
-		{},
-	)
-	return {"ok": True, "message": f"LiveKit agent {agent_id} now uses {base_url}. Agent secrets were updated and LiveKit will restart the agent."}
-
-
-@frappe.whitelist()
-def test_livekit_connection() -> dict[str, Any]:
-	_require_manager()
-	settings = get_settings()
-	_require_livekit_route_sync_settings(settings)
-	rule_count = _run_async(_count_livekit_dispatch_rules_async(settings))
-	return {
-		"ok": True,
-		"message": f"LiveKit connection is working. Frappe can call LiveKit SIP APIs with the configured API credentials. Dispatch rules found: {rule_count}.",
-	}
-
-
-async def _count_livekit_dispatch_rules_async(settings) -> int:
-	from livekit import api
-
-	livekit_url, api_key, api_secret = _livekit_credentials(settings)
-	livekit_api = api.LiveKitAPI(livekit_url, api_key, api_secret)
-	try:
-		response = await livekit_api.sip.list_dispatch_rule(api.ListSIPDispatchRuleRequest())
-		return len(response.items)
-	finally:
-		await livekit_api.aclose()
-
-
-@frappe.whitelist()
-def sync_all_voice_agent_routes() -> dict[str, Any]:
-	_require_manager()
-	settings = get_settings()
-	_require_livekit_route_sync_settings(settings)
-	routes = frappe.get_all(
-		"Vobiz Voice Agent Route",
-		filters={"active": 1},
-		pluck="name",
-		order_by="modified desc",
-	)
-	results = []
-	for route in routes:
-		try:
-			results.append(_sync_voice_agent_route(route))
-		except Exception:
-			results.append({"ok": False, "route": route, "error": frappe.get_traceback()})
-	return {
-		"ok": all(row.get("ok") for row in results),
-		"count": len(results),
-		"results": results,
-		"message": f"Synced {sum(1 for row in results if row.get('ok'))} of {len(results)} active LiveKit route(s).",
-	}
-
-
-def _get_public_frappe_base_url(settings) -> str:
 	base_url = (settings.get("frappe_base_url") or "").strip().rstrip("/")
 	if not base_url:
 		frappe.throw("Public Frappe Base URL is required in Vobiz AI Settings.")
-	if not base_url.startswith(("http://", "https://")):
-		frappe.throw("Public Frappe Base URL must start with http:// or https://")
-	return base_url
+	if not base_url.startswith("https://"):
+		frappe.throw("Public Frappe Base URL must start with https://")
+
+	agent_id = "CA_MLFjH7ffEbnd"
+	_run_lk_with_optional_env(
+		[
+			"agent",
+			"update-secrets",
+			"--id",
+			agent_id,
+			"--secrets",
+			f"FRAPPE_BASE_URL={base_url}",
+			"--ignore-empty-secrets",
+		],
+		{},
+	)
+	return {"ok": True, "message": f"LiveKit agent {agent_id} now uses {base_url}"}
 
 
 @frappe.whitelist()
@@ -693,9 +462,24 @@ def _sync_voice_agent_route(route: str) -> dict[str, Any]:
 
 	payload = _dispatch_rule_payload(doc, profile)
 	try:
-		rule_id = _find_rule_id_by_name(payload["name"]) or doc.livekit_dispatch_rule_id
-		synced_rule = _create_or_update_dispatch_rule(rule_id, payload)
-		rule_id = getattr(synced_rule, "sip_dispatch_rule_id", "") or rule_id or _find_rule_id_by_name(payload["name"])
+		rule_id = doc.livekit_dispatch_rule_id or _find_rule_id_by_name(payload["name"])
+		if rule_id:
+			_run_lk(
+				[
+					"sip",
+					"dispatch",
+					"update",
+					"--id",
+					rule_id,
+					"--trunks",
+					doc.livekit_inbound_trunk_id,
+					"-",
+				],
+				payload,
+			)
+		else:
+			_run_lk(["sip", "dispatch", "create", "-"], {"dispatch_rule": payload})
+			rule_id = _find_rule_id_by_name(payload["name"])
 		_mark_sync(doc, profile, "Synced", rule_id=rule_id)
 		return {
 			"ok": True,

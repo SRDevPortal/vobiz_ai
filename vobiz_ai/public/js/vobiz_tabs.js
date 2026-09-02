@@ -5,36 +5,6 @@ frappe.ui.form.on('CRM Lead', {
 	},
 });
 
-frappe.ui.form.on('Patient', {
-	refresh(frm) {
-		show_vobiz_patient_indicator(frm);
-		render_vobiz_calls(frm, 'Patient');
-	},
-});
-
-function show_vobiz_patient_indicator(frm) {
-	if (frm.is_new()) return;
-
-	const count = cint(frm.doc.vobiz_call_count || 0);
-	const indicator = frm.doc.vobiz_call_indicator;
-	if (!count && !indicator) return;
-
-	const temp = frm.doc.vobiz_lead_temperature || 'Unscored';
-	const score = frm.doc.vobiz_lead_score || 0;
-	const label = `New Vobiz Hit (${count || 1}) | ${temp} | Score ${score}`;
-	frm.dashboard.add_indicator(label, temp === 'Hot' ? 'red' : temp === 'Warm' ? 'orange' : 'blue');
-
-	frm.add_custom_button(__('Open Vobiz Calls'), () => {
-		frappe.route_options = { patient: frm.doc.name };
-		frappe.set_route('List', 'Vobiz Call Log');
-	});
-
-	frm.add_custom_button(__('Open Vobiz Issue'), () => {
-		frappe.route_options = { vobiz_patient: frm.doc.name };
-		frappe.set_route('List', 'Issue');
-	});
-}
-
 function mark_vobiz_calls_read(frm) {
 	if (frm.is_new()) return;
 	frappe.call({
@@ -57,7 +27,7 @@ function render_vobiz_calls(frm, doctype) {
 			const latest_time = latest.start_time ? frappe.datetime.str_to_user(latest.start_time) : 'No calls yet';
 			const transcript = latest.transcription_text || latest.transcript_text || '';
 			const summary = latest.ai_summary || '';
-			const latest_recording = audio_player(latest.recording_download_url || latest.recording_url);
+			const latest_recording = audio_player(latest.recording_url);
 			const body = rows.length ? rows.map(row => {
 				const row_transcript = row.transcription_text || row.transcript_text || '';
 				return `<tr>
@@ -65,7 +35,7 @@ function render_vobiz_calls(frm, doctype) {
 					<td>${frappe.utils.escape_html(row.status || '')}</td>
 					<td>${frappe.utils.escape_html(row.direction || '')}</td>
 					<td>${frappe.utils.escape_html(row.customer_number || '')}</td>
-					<td>${audio_player(row.recording_download_url || row.recording_url)}</td>
+					<td>${audio_player(row.recording_url)}</td>
 					<td class="vobiz-transcript-cell">${frappe.utils.escape_html(short_text(row_transcript || row.ai_summary || '', 180))}</td>
 				</tr>`;
 			}).join('') : '<tr><td colspan="6" class="text-muted">No Vobiz calls found.</td></tr>';
@@ -181,7 +151,7 @@ function render_crm_lead_vobiz_calling(frm) {
 					<div class="vobiz-main-grid">
 						<div>
 							<div class="vobiz-label">Recording</div>
-							${audio_player(latest.recording_download_url || latest.recording_url) || '<span class="text-muted">No recording available</span>'}
+							${audio_player(latest.recording_url) || '<span class="text-muted">No recording available</span>'}
 						</div>
 						<div>
 							<div class="vobiz-label">AI Transcription</div>

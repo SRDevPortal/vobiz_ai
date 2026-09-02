@@ -21,10 +21,7 @@
   "default_owner",
   "default_team",
   "default_source",
-  "default_pipeline",
-  "column_break_2",
-  "default_platform",
-  "medical_department"
+  "column_break_2"
  ],
  "fields": [
   {"fieldname": "enabled_section", "fieldtype": "Section Break", "label": "Route"},
@@ -40,11 +37,8 @@
   {"fieldname": "defaults_section", "fieldtype": "Section Break", "label": "Lead Defaults"},
   {"fieldname": "default_owner", "fieldtype": "Link", "in_standard_filter": 1, "label": "Default Owner", "options": "User"},
   {"fieldname": "default_team", "fieldtype": "Data", "label": "Default Team"},
-  {"fieldname": "default_source", "fieldtype": "Link", "label": "Default Source", "options": "SR Lead Source"},
-  {"fieldname": "default_pipeline", "fieldtype": "Link", "label": "Default Pipeline", "options": "SR Lead Pipeline"},
-  {"fieldname": "column_break_2", "fieldtype": "Column Break"},
-  {"fieldname": "default_platform", "fieldtype": "Link", "label": "Default Platform", "options": "SR Lead Platform"},
-  {"fieldname": "medical_department", "fieldtype": "Link", "in_standard_filter": 1, "label": "Medical Department", "options": "Medical Department"}
+  {"fieldname": "default_source", "fieldtype": "Link", "label": "Default Source", "options": "CRM Lead Source"},
+  {"fieldname": "column_break_2", "fieldtype": "Column Break"}
  ],
  "links": [],
  "modified": "2026-05-27 17:40:00.000000",

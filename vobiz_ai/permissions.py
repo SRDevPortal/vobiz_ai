@@ -18,26 +18,7 @@ def _lead_access_sql(user: str) -> str:
 			   )
 			   OR name IN (
 					SELECT share_name FROM `tabDocShare`
-					WHERE share_doctype='CRM Lead' AND user={esc_user} AND `tabDocShare`.`read` = 1
-			   )
-		)
-	"""
-
-
-def _patient_access_sql(user: str) -> str:
-	esc_user = frappe.db.escape(user)
-	return f"""
-		`tabVobiz Call Log`.patient IN (
-			SELECT name FROM `tabPatient`
-			WHERE owner = {esc_user}
-			   OR user_id = {esc_user}
-			   OR name IN (
-					SELECT reference_name FROM `tabToDo`
-					WHERE reference_type='Patient' AND allocated_to={esc_user} AND status='Open'
-			   )
-			   OR name IN (
-					SELECT share_name FROM `tabDocShare`
-					WHERE share_doctype='Patient' AND user={esc_user} AND `tabDocShare`.`read` = 1
+					WHERE share_doctype='CRM Lead' AND user={esc_user} AND read=1
 			   )
 		)
 	"""
@@ -48,7 +29,7 @@ def get_call_log_permission_query_conditions(user: str | None = None) -> str:
 	if has_manager_role(user):
 		return ""
 	esc_user = frappe.db.escape(user)
-	return f"(`tabVobiz Call Log`.user = {esc_user} OR ({_lead_access_sql(user)}) OR ({_patient_access_sql(user)}))"
+	return f"(`tabVobiz Call Log`.user = {esc_user} OR ({_lead_access_sql(user)}))"
 
 
 def has_call_log_permission(doc, user: str | None = None, ptype: str | None = None) -> bool:
@@ -60,12 +41,6 @@ def has_call_log_permission(doc, user: str | None = None, ptype: str | None = No
 	if getattr(doc, "crm_lead", None):
 		try:
 			if frappe.has_permission("CRM Lead", "read", doc=frappe.get_doc("CRM Lead", doc.crm_lead), user=user):
-				return True
-		except Exception:
-			pass
-	if getattr(doc, "patient", None):
-		try:
-			if frappe.has_permission("Patient", "read", doc=frappe.get_doc("Patient", doc.patient), user=user):
 				return True
 		except Exception:
 			pass

@@ -12,7 +12,6 @@ from vobiz_ai.api.utils import (
 	get_account_id,
 	get_payload_and_headers,
 	get_password,
-	get_queue_name,
 	get_settings,
 )
 
@@ -86,7 +85,7 @@ def receive():
 	try:
 		frappe.enqueue(
 			"vobiz_ai.api.processing.process_webhook_event",
-			queue=get_queue_name("webhook_queue_name", "vobiz_webhook"),
+			queue="short",
 			timeout=300,
 			webhook_event=event.name,
 		)

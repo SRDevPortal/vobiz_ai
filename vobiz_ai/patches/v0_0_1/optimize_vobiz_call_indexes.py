@@ -10,7 +10,6 @@ def execute():
 	for doctype, fieldname, index_name in (
 		("Vobiz Call Log", "source_app", "idx_vobiz_call_source_app"),
 		("Vobiz Call Log", "user", "idx_vobiz_call_user"),
-		("Vobiz Call Log", "patient", "idx_vobiz_call_patient"),
 		("Vobiz Call Log", "crm_lead", "idx_vobiz_call_crm_lead"),
 		("Vobiz Call Log", "cdr_sync_status", "idx_vobiz_call_cdr_status"),
 		("Vobiz Call Log", "start_time", "idx_vobiz_call_start_time"),

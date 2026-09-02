@@ -6,10 +6,10 @@ import frappe
 import requests
 from frappe.rate_limiter import rate_limit
 
-from vobiz_ai.api.utils import create_error, get_password, get_queue_name, get_settings, hash_text, mark_error_resolved
+from vobiz_ai.api.utils import create_error, get_password, get_settings, hash_text, mark_error_resolved
 
 
-SYSTEM_PROMPT = """You score clinic call transcripts. Return only JSON with:
+SYSTEM_PROMPT = """You score sales and support call transcripts. Return only JSON with:
 lead_score integer 0-100, lead_temperature Hot/Warm/Cold, call_summary, intent, concerns, kamal_involved boolean.
 Mark kamal_involved true when the transcript shows the AI voice bot Kamal/KAMal talked."""
 
@@ -17,9 +17,9 @@ Mark kamal_involved true when the transcript shows the AI voice bot Kamal/KAMal 
 def _fallback_score(text: str) -> dict:
 	lower = (text or "").lower()
 	score = 60
-	if any(word in lower for word in ("urgent", "pain", "problem", "report", "appointment")):
+	if any(word in lower for word in ("urgent", "pricing", "quote", "order", "callback", "demo")):
 		score += 15
-	if any(word in text for word in ("कब", "दिक्कत", "प्रॉब्लम", "रिपोर्ट")):
+	if any(word in text for word in ("कीमत", "ऑर्डर", "कॉलबैक", "जानकारी")):
 		score += 10
 	score = min(score, 100)
 	temp = "Hot" if score >= 75 else "Warm" if score >= 45 else "Cold"
@@ -94,7 +94,14 @@ def score_call_log(call_log: str):
 		_sync_linked_summaries(doc)
 	except Exception as exc:
 		frappe.db.set_value("Vobiz Call Log", call_log, {"ai_status": "Failed", "last_error": str(exc)})
-		create_error("AI Scoring", str(exc), payload={"call_log": call_log}, exc=exc, call_log=call_log, crm_lead=doc.crm_lead, patient=doc.patient)
+		create_error(
+			"AI Scoring",
+			str(exc),
+			payload={"call_log": call_log},
+			exc=exc,
+			call_log=call_log,
+			crm_lead=doc.crm_lead,
+		)
 		raise
 
 
@@ -103,5 +110,5 @@ def score_call_log(call_log: str):
 def retry_score(call_log: str):
 	if not frappe.has_permission("Vobiz Call Log", "write", call_log):
 		frappe.throw("Not permitted", frappe.PermissionError)
-	frappe.enqueue("vobiz_ai.api.ai.score_call_log", queue=get_queue_name("ai_queue_name", "vobiz_ai"), call_log=call_log)
+	frappe.enqueue("vobiz_ai.api.ai.score_call_log", queue="short", call_log=call_log)
 	return {"status": "queued"}

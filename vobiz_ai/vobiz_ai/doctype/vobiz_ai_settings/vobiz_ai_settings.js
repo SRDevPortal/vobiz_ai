@@ -1,42 +1,20 @@
 frappe.ui.form.on("Vobiz AI Settings", {
 	refresh(frm) {
-		frm.add_custom_button(__("Test LiveKit Connection"), () => {
+		frm.add_custom_button(__("Sync Base URL to LiveKit"), () => {
 			frappe.call({
-				method: "vobiz_ai.api.livekit.test_livekit_connection",
+				method: "vobiz_ai.api.livekit.sync_frappe_base_url_secret",
 				freeze: true,
-				freeze_message: __("Testing LiveKit connection..."),
+				freeze_message: __("Updating LiveKit agent secret..."),
 				callback(r) {
 					if (r.message) {
 						frappe.msgprint({
-							title: __("LiveKit Connection"),
-							message: r.message.message || __("LiveKit connection is working."),
+							title: __("LiveKit Secret Updated"),
+							message: r.message.message || __("Frappe base URL synced to LiveKit."),
 							indicator: r.message.ok ? "green" : "orange",
 						});
 					}
 				},
 			});
-		});
-
-		frm.add_custom_button(__("Deploy / Sync Dispatch Rules"), () => {
-			frappe.confirm(
-				__("Sync all active Vobiz Voice Agent Routes to LiveKit dispatch rules?"),
-				() => {
-					frappe.call({
-						method: "vobiz_ai.api.livekit.sync_all_voice_agent_routes",
-						freeze: true,
-						freeze_message: __("Syncing LiveKit dispatch rules..."),
-						callback(r) {
-							if (r.message) {
-								frappe.msgprint({
-									title: __("LiveKit Dispatch Rules"),
-									message: r.message.message || __("Dispatch rules synced."),
-									indicator: r.message.ok ? "green" : "orange",
-								});
-							}
-						},
-					});
-				}
-			);
 		});
 	},
 });
