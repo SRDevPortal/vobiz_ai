@@ -63,24 +63,37 @@ def create_outbound_call_log(
 
 
 def append_callback(call_log: str, event: str, payload: dict) -> None:
-	if not frappe.db.exists("Vobiz Call Log", call_log):
-		return
+	"""Append history under a row lock without running call lifecycle hooks.
 
-	doc = frappe.get_doc("Vobiz Call Log", call_log)
-	rows = []
-	if doc.get("raw_callbacks"):
+	The calling worker owns the transaction. A locking read sees the latest
+	committed history under REPEATABLE READ. Logging does not update modified:
+	history traffic is not evidence that the call is still active.
+	"""
+	try:
+		result = frappe.db.sql(
+			"SELECT raw_callbacks FROM `tabVobiz Call Log` WHERE name=%s FOR UPDATE",
+			(call_log,),
+		)
+		if not result:
+			return
 		try:
-			rows = json.loads(doc.raw_callbacks)
-		except Exception:
+			rows = json.loads(result[0][0] or "[]")
+		except (ValueError, TypeError):
 			rows = []
-
-	safe_payload = dict(payload or {})
-	safe_payload.pop("token", None)
-	safe_payload.pop("cmd", None)
-	rows.append({"event": event, "received_at": frappe.utils.now(), "payload": safe_payload})
-	doc.raw_callbacks = json.dumps(rows[-50:], indent=2, default=str)
-	doc.raw_payload = as_json({"callbacks": rows[-50:]})
-	doc.save(ignore_permissions=True)
+		if not isinstance(rows, list):
+			rows = []
+		safe_payload = dict(payload or {})
+		safe_payload.pop("token", None)
+		safe_payload.pop("cmd", None)
+		rows.append({"event": event, "received_at": frappe.utils.now(), "payload": safe_payload})
+		rows = rows[-50:]
+		frappe.db.sql(
+			"UPDATE `tabVobiz Call Log` SET raw_callbacks=%s, raw_payload=%s WHERE name=%s",
+			(json.dumps(rows, indent=2, default=str), as_json({"callbacks": rows}), call_log),
+		)
+	except (frappe.QueryDeadlockError, frappe.QueryTimeoutError) as exc:
+		# execute_job rolls back and retries the whole transaction.
+		raise frappe.RetryBackgroundJobError from exc
 
 
 def sync_reference_links(call_log_doc) -> None:
