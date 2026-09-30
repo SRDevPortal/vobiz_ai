@@ -540,6 +540,7 @@ def _maybe_queue_patient_encounter(call):
 def get_related_calls(doctype: str, name: str):
 	if doctype not in ("CRM Lead", "Patient"):
 		frappe.throw("Unsupported doctype")
+	frappe.get_doc(doctype, name).check_permission("read")
 	filters = {"crm_lead": name} if doctype == "CRM Lead" else {"patient": name}
 	rows = frappe.get_all(
 		"Vobiz Call Log",
@@ -566,4 +567,5 @@ def get_related_calls(doctype: str, name: str):
 	)
 	for row in rows:
 		row["recording_download_url"] = recording_proxy_url(row.name) if row.get("recording_url") else ""
-	return rows
+	from vobiz_ai.number_privacy import project_response
+	return project_response(rows)

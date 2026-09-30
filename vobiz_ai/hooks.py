@@ -62,3 +62,12 @@ fixtures = [
     {"dt": "Workspace", "filters": [["module", "=", "Vobiz AI"]]},
     {"dt": "Role", "filters": [["name", "in", ["Vobiz AI Manager"]]]},
 ]
+
+# Apply privacy before the original ownership check/provider download.
+override_whitelisted_methods = {
+    "vobiz_click_to_call.api.recording.download": "vobiz_ai.api.private_recordings.download",
+    "vobiz_click_to_call.api.recording.stream": "vobiz_ai.api.private_recordings.stream",
+}
+
+# Authenticate first; protect raw HTTP reads without restricting worker ORM access.
+auth_hooks = ["vobiz_ai.document_privacy.guard_request"]
