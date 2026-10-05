@@ -3,6 +3,7 @@ from __future__ import annotations
 import secrets
 
 import frappe
+from vobiz_ai import number_privacy
 from frappe.utils import get_datetime, now_datetime
 
 from vobiz_ai.api.utils import find_account_mapping, find_by_phone, get_password, get_settings, has_manager_role, normalize_phone
@@ -651,7 +652,7 @@ def _publish_patient_routed_call(context: dict, routing: dict) -> None:
 	try:
 		frappe.publish_realtime(
 			"vobiz_patient_routed_call",
-			{
+			number_privacy.project_patient_routed_notification({
 				"call_log": _request_value("call_log", "callLog"),
 				"patient": patient,
 				"patient_name": context.get("display_name") or patient,
@@ -664,7 +665,7 @@ def _publish_patient_routed_call(context: dict, routing: dict) -> None:
 				"sr_followup_id": routing.get("sr_followup_id") or context.get("sr_followup_id") or "",
 				"medical_department": routing.get("medical_department") or context.get("medical_department") or "",
 				"patient_routing_match_mode": routing.get("patient_routing_match_mode") or "",
-			},
+			}, agent_user),
 			user=agent_user,
 			after_commit=True,
 		)
