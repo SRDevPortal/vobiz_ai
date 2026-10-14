@@ -40,7 +40,7 @@ class NumberPrivacyTests(unittest.TestCase):
     def test_recordings_denied_before_provider_transport(self):
         import frappe
         from vobiz_ai.api import private_recordings
-        for method in ['download', 'stream']:
+        for method in ['download']:
             with patch.object(private_recordings, 'restricted', return_value=True), patch('vobiz_click_to_call.api.recording.' + method) as original:
                 with self.assertRaises(frappe.PermissionError):
                     getattr(private_recordings, method).__wrapped__('call')
@@ -95,3 +95,14 @@ class NumberPrivacyTests(unittest.TestCase):
         self.assertEqual(payload["customer_number"], "9876501234")
         publish.assert_called_once_with("vobiz_patient_routed_call", safe,
                                         user="agent@example.test", after_commit=True)
+
+    def test_masked_agent_playback_keeps_native_authorization(self):
+        import frappe
+        from vobiz_ai.api import private_recordings
+        with patch.object(private_recordings, 'restricted', return_value=True), \
+             patch('vobiz_click_to_call.api.recording.stream', return_value='audio') as original:
+            self.assertEqual(private_recordings.stream.__wrapped__('CALL-1'), 'audio')
+            original.assert_called_once_with('CALL-1')
+        with patch('vobiz_click_to_call.api.recording.stream', side_effect=frappe.PermissionError):
+            with self.assertRaises(frappe.PermissionError):
+                private_recordings.stream.__wrapped__('CALL-1')
