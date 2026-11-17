@@ -62,16 +62,20 @@ def create_outbound_call_log(
 	return doc
 
 
-def append_callback(call_log: str, event: str, payload: dict) -> None:
+def append_callback(call_log: str, event: str, payload: dict, *, nowait: bool = False) -> None:
 	"""Append history under a row lock without running call lifecycle hooks.
 
 	The calling worker owns the transaction. A locking read sees the latest
 	committed history under REPEATABLE READ. Logging does not update modified:
 	history traffic is not evidence that the call is still active.
 	"""
+	# Background adapters opt in to fail-fast locking; existing synchronous
+	# callers retain their transaction contract. RetryBackgroundJobError keeps
+	# the payload in RQ and rolls back the whole failed attempt.
+	lock = "FOR UPDATE NOWAIT" if nowait else "FOR UPDATE"
 	try:
 		result = frappe.db.sql(
-			"SELECT raw_callbacks FROM `tabVobiz Call Log` WHERE name=%s FOR UPDATE",
+			f"SELECT raw_callbacks FROM `tabVobiz Call Log` WHERE name=%s {lock}",
 			(call_log,),
 		)
 		if not result:

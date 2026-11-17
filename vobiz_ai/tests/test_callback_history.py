@@ -36,6 +36,14 @@ class CallbackHistoryTests(unittest.TestCase):
         self.assertEqual(payload["token"], "secret")
         self.db.commit.assert_not_called()
 
+    def test_background_history_does_not_wait_or_acknowledge_on_busy_lock(self):
+        self.db.sql.side_effect = frappe.QueryTimeoutError("busy")
+        with self.assertRaises(frappe.RetryBackgroundJobError):
+            append_callback("CALL", "hangup", {"CallUUID": "id"}, nowait=True)
+        self.assertIn("FOR UPDATE NOWAIT", self.db.sql.call_args.args[0])
+        self.db.sql.assert_called_once()
+        self.db.commit.assert_not_called()
+
     def test_deleted_call_does_not_get_recreated(self):
         self.db.sql.return_value = []
         append_callback("DELETED", "hangup", {})
