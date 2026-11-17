@@ -28,12 +28,14 @@ def create_outbound_call_log(
 	call_flow: str,
 	user: str | None = None,
 	callback_token: str | None = None,
+	direct_dial: bool = False,
 ):
 	doc = frappe.get_doc(
 		{
 			"doctype": "Vobiz Call Log",
 			"call_key": make_outbound_call_key(),
 			"source_app": "vobiz_click_to_call",
+			**({"request_json": json.dumps({"direct_dial": True})} if direct_dial else {}),
 			"reference_doctype": reference_doctype,
 			"reference_name": reference_name,
 			"phone_field": phone_field,
@@ -107,6 +109,15 @@ def sync_reference_links(call_log_doc) -> None:
 		call_log_doc.patient = call_log_doc.reference_name
 
 	if call_log_doc.crm_lead or call_log_doc.patient:
+		return
+
+	# Direct-dial references were resolved with the initiating user's permissions.
+	# Do not later attach an unreadable or ambiguous match as a background user.
+	try:
+		context = json.loads(call_log_doc.get("request_json") or "{}")
+	except (ValueError, TypeError):
+		context = {}
+	if isinstance(context, dict) and context.get("direct_dial") is True:
 		return
 
 	customer_number = call_log_doc.customer_number or call_log_doc.normalized_customer_number
