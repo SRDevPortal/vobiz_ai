@@ -78,6 +78,18 @@ class HistoryIdentityTests(unittest.TestCase):
 
 class HistoryMaintenanceTests(unittest.TestCase):
     @patch.object(ops,"frappe")
+    def test_progress_ignores_stale_defaults_cache(self,f):
+        f.db.get_global.return_value="stale"
+        f.db.sql.return_value=[("committed-cursor",)]
+        self.assertEqual(ops._read_progress(ops.CURSOR),"committed-cursor")
+        f.db.get_global.assert_not_called()
+        self.assertEqual(f.db.sql.call_args.args[1],("__global",ops.CURSOR))
+        f.db.sql.return_value=[]
+        self.assertIsNone(ops._read_progress(ops.CURSOR))
+        f.db.sql.return_value=[("one",),("two",)]
+        with self.assertRaises(RuntimeError):ops._read_progress(ops.CURSOR)
+
+    @patch.object(ops,"frappe")
     def test_missing_schema_is_not_backfill_completion(self,f):
         f.conf={};f.db.has_column.return_value=False
         with self.assertRaises(RuntimeError):ops.backfill()
@@ -95,7 +107,7 @@ class HistoryMaintenanceTests(unittest.TestCase):
     @patch.object(ops,"_schema")
     @patch.object(ops,"frappe")
     def test_approval_rejects_unverified_or_mismatched_history(self,f,schema,lock):
-        f.conf={};f.db.get_global.return_value=1
+        f.conf={};f.db.sql.return_value=[("1",)]
         base=dict(version=history.VERSION,done=False,missing=0,mismatched=0,time_mismatched=0,invalid_source=0,normalized_fallback=0)
         with patch.object(ops,"_state",return_value=base):
             with self.assertRaises(RuntimeError):ops.approve(True)
@@ -107,7 +119,7 @@ class HistoryMaintenanceTests(unittest.TestCase):
     @patch.object(ops,"_schema")
     @patch.object(ops,"frappe")
     def test_approval_requires_explicit_identity_review(self,f,schema,lock):
-        f.conf={};f.db.get_global.return_value=1
+        f.conf={};f.db.sql.return_value=[("1",)]
         state=dict(version=history.VERSION,done=True,missing=0,mismatched=0,time_mismatched=0,invalid_source=0,normalized_fallback=0)
         with patch.object(ops,"_state",return_value=state):
             with self.assertRaises(ValueError):ops.approve()

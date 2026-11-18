@@ -30,6 +30,8 @@ class CallHistoryMariaDBTests(unittest.TestCase):
             self.sql(f"INSERT INTO `{self.table}` (name,customer_number,creation) VALUES (%s,%s,'2026-01-01')", (name, phone))
         frappe.db.commit()
         def redirected(query, values=(), **kwargs):
+            if "tabDefaultValue" in query:
+                return self.sql(f"SELECT value FROM `{self.progress}` WHERE name=%s", (values[1],), **kwargs)
             return self.sql(query.replace("tabVobiz Call Log", self.table), values, **kwargs)
         def get_global(key):
             rows = self.sql(f"SELECT value FROM `{self.progress}` WHERE name=%s", (key,))

@@ -45,8 +45,21 @@ def _same(field, left, right):
     return str(left or "") == str(right or "")
 
 
+def _read_progress(key):
+    # Defaults are Redis-cached by Frappe. A stale cache entry can make a
+    # resumable job replay a page forever despite committing a newer cursor.
+    # Maintenance decisions must use this transaction's database state.
+    rows = frappe.db.sql(
+        "SELECT defvalue FROM `tabDefaultValue` WHERE parent=%s AND defkey=%s",
+        ("__global", key),
+    )
+    if len(rows) > 1:
+        raise RuntimeError("Duplicate caller-history progress markers")
+    return rows[0][0] if rows else None
+
+
 def _state():
-    raw = frappe.db.get_global(AUDIT)
+    raw = _read_progress(AUDIT)
     return json.loads(raw) if raw else dict(version=VERSION, last_name="", done=False, processed=0,
         missing=0, mismatched=0, time_mismatched=0, invalid_source=0, blank_source=0,
         normalized_fallback=0, legacy_identity_changed=0)
@@ -68,8 +81,8 @@ def backfill(batch_size=200, dry_run=True, reset=False):
             frappe.db.set_global(AUDIT,"")
             frappe.db.set_global(READY,"")
             frappe.db.commit()
-        cursor=str(frappe.db.get_global(CURSOR) or "")
-        if cint(frappe.db.get_global(DONE)):
+        cursor=str(_read_progress(CURSOR) or "")
+        if cint(_read_progress(DONE)):
             return dict(done=True,status="already_backfilled",last_name=cursor)
         rows=_page(cursor,batch_size)
         old=frappe.db.sql("SELECT @@SESSION.innodb_lock_wait_timeout")[0][0]
@@ -152,7 +165,7 @@ def approve(acknowledge_identity_changes=False, accept_excluded_invalid=False, a
     _inactive(); _schema()
     with _lock():
         state=_state()
-        if not cint(frappe.db.get_global(DONE)) or not state["done"] or state["version"]!=VERSION:
+        if not cint(_read_progress(DONE)) or not state["done"] or state["version"]!=VERSION:
             raise RuntimeError("Complete backfill and full verification first")
         if any(state[k] for k in ("missing","mismatched","time_mismatched")):
             raise RuntimeError("History verification has unresolved mismatches")
@@ -173,7 +186,7 @@ def approve(acknowledge_identity_changes=False, accept_excluded_invalid=False, a
 
 def status():
     frappe.only_for("System Manager")
-    return dict(version=VERSION,backfill_done=bool(cint(frappe.db.get_global(DONE))),
-        last_name=frappe.db.get_global(CURSOR) or "",verification=_state(),
-        approved=str(frappe.db.get_global(READY) or "")==VERSION,
+    return dict(version=VERSION,backfill_done=bool(cint(_read_progress(DONE))),
+        last_name=_read_progress(CURSOR) or "",verification=_state(),
+        approved=str(_read_progress(READY) or "")==VERSION,
         enabled=bool(cint(frappe.conf.get("vobiz_indexed_call_history"))))
