@@ -135,6 +135,9 @@ def _caller_phone_from_request() -> str:
 
 
 def _call_count_for_phone(phone: str) -> int:
+	from vobiz_ai.history import indexed_enabled, count_calls
+	if indexed_enabled():
+		return count_calls(phone)
 	normalized = normalize_phone(phone)
 	if not normalized:
 		return 0
@@ -153,22 +156,27 @@ def _call_count_for_phone(phone: str) -> int:
 
 
 def _latest_call_for_phone(phone: str) -> dict:
-	normalized = normalize_phone(phone)
-	if not normalized:
-		return {}
-	last10 = normalized[-10:]
-	rows = frappe.db.sql(
-		"""
-		SELECT name, start_time, event_timestamp, status, direction, crm_lead, patient
-		FROM `tabVobiz Call Log`
-		WHERE normalized_customer_number = %(normalized)s
-		   OR customer_number LIKE %(last10_like)s
-		ORDER BY COALESCE(start_time, event_timestamp, creation) DESC
-		LIMIT 1
-		""",
-		{"normalized": normalized, "last10_like": f"%{last10}"},
-		as_dict=True,
-	)
+	from vobiz_ai.history import indexed_enabled, latest_call
+	if indexed_enabled():
+		row = latest_call(phone)
+		rows = [row] if row else []
+	else:
+		normalized = normalize_phone(phone)
+		if not normalized:
+			return {}
+		last10 = normalized[-10:]
+		rows = frappe.db.sql(
+			"""
+			SELECT name, start_time, event_timestamp, status, direction, crm_lead, patient
+			FROM `tabVobiz Call Log`
+			WHERE normalized_customer_number = %(normalized)s
+			   OR customer_number LIKE %(last10_like)s
+			ORDER BY COALESCE(start_time, event_timestamp, creation) DESC
+			LIMIT 1
+			""",
+			{"normalized": normalized, "last10_like": f"%{last10}"},
+			as_dict=True,
+		)
 	if not rows:
 		return {}
 	row = rows[0]

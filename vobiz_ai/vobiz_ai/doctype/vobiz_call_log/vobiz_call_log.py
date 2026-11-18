@@ -35,3 +35,6 @@ class VobizCallLog(Document):
 			from vobiz_ai.api.utils import hash_text
 
 			self.transcript_hash = hash_text(self.transcription_text)
+
+		from vobiz_ai.history import sync_document
+		sync_document(self)

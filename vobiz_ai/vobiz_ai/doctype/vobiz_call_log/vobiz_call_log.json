@@ -146,7 +146,9 @@
   "raw_callbacks",
   "cdr_json",
   "raw_payload",
-  "last_error"
+  "last_error",
+  "vobiz_history_phone",
+  "vobiz_history_time"
  ],
  "fields": [
   {"fieldname": "call_section", "fieldtype": "Section Break", "label": "Call"},
@@ -288,7 +290,9 @@
   {"fieldname": "raw_callbacks", "fieldtype": "Code", "label": "Raw Callbacks", "options": "JSON"},
   {"fieldname": "cdr_json", "fieldtype": "Code", "label": "CDR JSON", "options": "JSON"},
   {"fieldname": "raw_payload", "fieldtype": "Long Text", "label": "Raw Payload"},
-  {"fieldname": "last_error", "fieldtype": "Small Text", "label": "Last Error", "read_only": 1}
+  {"fieldname": "last_error", "fieldtype": "Small Text", "label": "Last Error", "read_only": 1},
+  {"fieldname": "vobiz_history_phone", "label": "Indexed History Phone", "fieldtype": "Data", "hidden": 1, "read_only": 1, "no_copy": 1},
+  {"fieldname": "vobiz_history_time", "label": "Indexed History Time", "fieldtype": "Datetime", "hidden": 1, "read_only": 1, "no_copy": 1}
  ],
  "links": [],
  "modified": "2026-05-27 17:40:00.000000",

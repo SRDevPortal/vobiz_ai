@@ -314,6 +314,10 @@ def _add_index_if_possible(doctype: str, fields: list[str], index_name: str):
     for field in fields:
         if not frappe.db.has_column(doctype, field):
             return
+    # Reuse full leading coverage from the controlled composite-index repair.
+    from vobiz_ai.maintenance.lookup_indexes import _definitions, _matching
+    if _matching(_definitions("tab" + doctype), fields):
+        return
     try:
         frappe.db.add_index(doctype, fields, index_name)
     except Exception:
